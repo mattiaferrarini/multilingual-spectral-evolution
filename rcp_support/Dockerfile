@@ -4,10 +4,9 @@
 # this Dockerfile. It is provided as a starting point only if your project
 # genuinely needs a custom image with extra system packages or libraries.
 #
-# Built on the official vLLM image: CUDA + PyTorch + vLLM +
-# FlashAttention/FlashInfer + bitsandbytes, all pre-installed and
-# version-coherent. We add the Python NLP stack (transformers, TRL,
-# PEFT, datasets, JupyterLab, eval/RAG libs) on top.
+# Built on the official vLLM image: CUDA + PyTorch + vLLM, with
+# FlashInfer and bitsandbytes available. We add the Python NLP stack
+# (transformers, TRL, PEFT, datasets, JupyterLab, eval/RAG libs) on top.
 #
 # Pin VLLM_TAG to a specific version, never `:latest` or
 # `:latest-ubuntu2404` (those move with every vLLM release).

@@ -1,14 +1,29 @@
 #!/bin/bash
 # CS-552 — submit an interactive RCP job with Jupyter Lab.
 #
+# This is a starter Run:AI launcher and is intended to be the basis for
+# the project-wide notebooks/submit.sh deliverable in most cases. Make sure 
+# GROUP is set to your team group, and modify anything else only if your
+# project genuinely needs it.
+#
+# GASPAR selects the Run:AI project of the person launching the job. Set
+# it to your own EPFL username when testing. For the submitted
+# notebooks/submit.sh, it is fine if GASPAR remains "gaspar": TAs will
+# replace it with their own username before grading. 
+
+# GROUP selects your team's scratch PVC and MUST be set correctly before
+# submission.
+#
 # ============================================================
-#  STEP 1  — set your Gaspar username and team group ID below
-#            (both REQUIRED)
+#  STEP 1  — set your team group ID below before submission
+#            set GASPAR too when you run the script yourself
 # ============================================================
 #
 # Usage:
-#   ./submit.sh                # default: 1 GPU, suffix "lab"
-#   ./submit.sh train          # custom job suffix
+#   ./submit.sh                # default: 1 GPU interactive Jupyter job
+#   ./submit.sh exp1           # same interactive job, custom name suffix
+#
+# The optional argument only changes the job name.
 #
 # Once the pod is Running, connect in one of these ways:
 #
@@ -34,24 +49,29 @@
 set -euo pipefail
 
 # ============== EDIT THESE LINES ==============
-GASPAR="gaspar"              # <-- YOUR GASPAR EPFL username.
-GROUP="gXX"                  # <-- YOUR TEAM, e.g. g07.
+GASPAR="gaspar"              # <-- For local runs: your EPFL username. TAs may replace this for grading.
+GROUP="gXX"                  # <-- REQUIRED FOR SUBMISSION: your team, e.g. g07.
 # ==============================================
 
-# Refuse to run with placeholders.
+# Refuse to run with placeholders. GASPAR is required only by whoever is
+# launching the job; GROUP must be correct in the submitted file.
 if [[ "${GASPAR}" == "gaspar" || -z "${GASPAR}" ]]; then
-    echo "ERROR: edit submit.sh and set GASPAR to your EPFL GASPAR username." >&2
+    echo "ERROR: set GASPAR to the EPFL username of the person launching this job." >&2
+    echo "For the submitted notebooks/submit.sh, GASPAR may stay as 'gaspar' because TAs will replace it." >&2
     exit 1
 fi
 
 if [[ "${GROUP}" == "gXX" || -z "${GROUP}" ]]; then
-    echo "ERROR: edit submit.sh and set GROUP to your team number (e.g. g07)." >&2
+    echo "ERROR: set GROUP to your team number (e.g. g07)." >&2
+    echo "GROUP must be correct in the submitted notebooks/submit.sh because it selects your team's scratch PVC." >&2
     exit 1
 fi
 
 GPUS=1   # course cap: 1 GPU
+NODE="${NODE:-a100-40g}"  # DO NOT CHANGE: course quota is only available on this node pool
 SUFFIX="${1:-lab}"
 JOB_NAME="cs552-${GASPAR}-${GROUP}-${SUFFIX}-$(date +%H%M%S)"
+PROJECT="course-cs-552-${GASPAR}"
 
 # Default image with CUDA, PyTorch, and common libraries.
 # Override if you use a custom image. 
@@ -61,11 +81,6 @@ SCRATCH_PVC="course-cs-552-scratch-${GROUP}"
 SHARED_RO_PVC="course-cs-552-shared-ro"
 SHARED_RW_PVC="course-cs-552-shared-rw"
 
-# Override these environment variables in your shell or .env file if you want to use 
-# Hugging Face or Weights & Biases with authentication.
-HF_TOKEN=
-WANDB_API_KEY=
-
 # This script does not mount the personal home PVC, so it does not need
 # a hard-coded UID/GID. Use /scratch for course work and deliverables.
 
@@ -73,21 +88,22 @@ echo ">>> Submitting ${JOB_NAME}  (1 GPU)"
 
 runai submit \
   --name "${JOB_NAME}" \
-  -p "course-cs-552-${GASPAR}" \
+  -p "${PROJECT}" \
   --image "${IMAGE}" \
   --gpu "${GPUS}" \
   --large-shm \
   --interactive \
+  --node-pools "${NODE}" \
+  --working-dir /scratch \
   --environment HF_HOME=/scratch/hf_cache \
   --environment HF_HUB_ENABLE_HF_TRANSFER=1 \
-  --environment HF_TOKEN="${HF_TOKEN:-}" \
-  --environment WANDB_API_KEY="${WANDB_API_KEY:-}" \
   --environment WANDB_DIR=/scratch/wandb \
   --existing-pvc "claimname=${SCRATCH_PVC},path=/scratch" \
   --existing-pvc "claimname=${SHARED_RO_PVC},path=/shared-ro" \
   --existing-pvc "claimname=${SHARED_RW_PVC},path=/shared-rw" \
   --command -- /bin/bash -lc "\
     mkdir -p /scratch/hf_cache /scratch/wandb && \
+    ln -sf \"\$(command -v python3)\" /usr/local/bin/python && \
     cd /scratch && \
     jupyter lab \
       --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
@@ -98,12 +114,12 @@ cat <<EOF
 
 >>> Job submitted: ${JOB_NAME}
 
-Watch it start:    runai describe job ${JOB_NAME}
-Stream logs:       runai logs -f ${JOB_NAME}
-When Running:      runai port-forward ${JOB_NAME} --port 8888:8888
+Watch it start:    runai describe job ${JOB_NAME} -p ${PROJECT}
+Stream logs:       runai logs -f ${JOB_NAME} -p ${PROJECT}
+When Running:      runai port-forward ${JOB_NAME} --port 8888:8888 -p ${PROJECT}
 Then open:         http://localhost:8888  (token: cs552)
-Shell in pod:      runai bash ${JOB_NAME}
-Stop the job:      runai delete job ${JOB_NAME}
+Shell in pod:      runai bash ${JOB_NAME} -p ${PROJECT}
+Stop the job:      runai delete job ${JOB_NAME} -p ${PROJECT}
 
 Other connection options:
   Jupyter Lab:
@@ -112,7 +128,7 @@ Other connection options:
     This is best for notebooks, plots, and milestone work.
 
   Shell:
-    runai bash ${JOB_NAME}
+    runai bash ${JOB_NAME} -p ${PROJECT}
     This is useful for nvidia-smi, checking files, installing a temporary
     package, or running scripts without opening Jupyter.
 
@@ -122,17 +138,29 @@ Other connection options:
     choose "Attach Visual Studio Code". Then open your repo folder inside
     the pod and use Terminal -> New Terminal for a shell.
 
-WHEN YOU'RE DONE: \`runai delete job ${JOB_NAME}\`. Idle sessions
+WHEN YOU'RE DONE: \`runai delete job ${JOB_NAME} -p ${PROJECT}\`. Idle sessions
 take a GPU away from the rest of the course.
 
+Run:AI note:
+  If you see a transient [PodGrouperWarning] that says the PodGroup
+  "object has been modified", wait and run the describe command again.
+  This is a scheduler reconciliation warning, not a submit.sh syntax
+  error. The job is only stuck if it remains Pending after a few minutes.
+
 Storage inside the pod:
-  /scratch             team scratch — your group's primary workspace, RW
+  /scratch             group scratch PVC (${SCRATCH_PVC}) — your group's primary workspace, RW
   /shared-ro/datasets  course datasets (read-only)
   /shared-ro/models    course models   (read-only)
   /shared-rw           shared with ALL students — be careful what you write
 
 Deliverable notebooks:
-  Keep individual_notebooks/*.ipynb in your git repo and commit them.
+  Keep notebooks/<first_name>_<last_name>_<sciper>.ipynb files in your
+  git repo and commit them.
+  Keep the project-wide notebooks/submit.sh in the same notebooks/
+  directory. This script is intended to be the basis for that deliverable
+  in most cases. GROUP must be set to your team group in the submitted
+  file. GASPAR may be changed by whoever launches the job; TAs can
+  replace it before grading.
   Use /scratch for caches, checkpoints, and large generated files, not
-  as the only place where milestone notebooks exist.
+  as a submission location.
 EOF

@@ -22,5 +22,21 @@ Read [rcp_support documentation](rcp_support/README.md) carefully to ensure you 
 As part of the milestone submission, you are required to submit a notebook per team member. 
 Put these notebooks in the [notebooks](notebooks) directory.
 
+Use this structure for the notebook submissions:
+
+```text
+notebooks/
+  submit.sh # (one per team, to launch the notebook environment)
+  <first_name>_<last_name>_<sciper>.ipynb
+  <first_name>_<last_name>_<sciper>.ipynb
+  <first_name>_<last_name>_<sciper>.ipynb
+  <first_name>_<last_name>_<sciper>.ipynb
+```
+
+See [rcp_support/README.md](rcp_support/README.md) for submit script details.
+
+### [`report/`](report)
+Put your milestone report in the [report](report) directory. 
+
 ### [`code/`](code)
 Put all the code files in the [code](code) directory. You are free to organize your code as you see fit in this directory.
