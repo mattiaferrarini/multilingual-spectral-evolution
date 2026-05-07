@@ -1,0 +1,46 @@
+debug: true
+
+model:
+  name: "swiss-ai/Apertus-8B-2509"
+  checkpoints: "all"        # "all" = auto-discover branches, null = default branch, or a list: ["10B", "50B"]
+  branch_filter_pattern: "^step\\d+-tokens\\d+[BT]$"   # keep only step{N}-tokens{M}B/T branches
+  max_checkpoints: null       # cap the number of checkpoints processed (null = no limit)
+  checkpoint_step: null     # keep every Nth checkpoint (e.g. 3 = indices 0, 3, 6, …; null = all)
+  trust_remote_code: true
+  torch_dtype: "bfloat16"
+  attn_implementation: "flash_attention_2"  # uncomment if flash-attn is installed
+
+datasets:
+  - name: "English"
+    path: "HuggingFaceFW/fineweb"
+    subset: "sample-10BT"
+  - name: "French"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "fra_Latn"
+  - name: "Spanish"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "spa_Latn"
+  - name: "Arabic"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "arb_Arab"
+  - name: "Chinese"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "cmn_Hani"
+  - name: "Swahili"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "swh_Latn"
+
+collection:
+  #   layers: ["last"]         # "last", "all", list of ints, or {start, end, step}
+  layers:
+    step: 3
+  aggregations: ["last"]   # "last", "first", or "mean"
+  num_sequences: 10000
+  max_sequence_length: 256
+  min_sequence_length: 32
+  batch_size: 32  
+  seed: 42                 # controls dataset sampling; same seed = same sequences across all checkpoints
+
+output:
+  results_path: "results/apertus.csv"
+  samples_dir: "data/selected_samples"

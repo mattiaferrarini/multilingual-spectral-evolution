@@ -1,0 +1,7 @@
+torch
+PyYAML
+pandas
+python-dotenv
+datasets
+transformers
+huggingface-hub
