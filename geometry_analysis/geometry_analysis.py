@@ -53,14 +53,14 @@ def process_checkpoint(ckpt, run_idx, pending, n_total, model_name, model_cfg, c
             continue
         samples = dataset_samples[ds_name]
         logger.info(f"=== Dataset: {ds_name} ({len(samples)} seqs) ===")
-        for agg in aggregations:
+        activations_by_agg = collect_activations(
+            hf_model, tokenizer, samples, layer_indices,
+            max_seq_len, aggregations, batch_size,
+            label=f"{ckpt_label} | {ds_name}",
+            debug=config.get("debug", False),
+        )
+        for agg, activations in activations_by_agg.items():
             logger.info(f"--- Aggregation: {agg} ---")
-            activations = collect_activations(
-                hf_model, tokenizer, samples, layer_indices,
-                max_seq_len, agg, batch_size,
-                label=f"{ckpt_label} | {ds_name} | {agg}",
-                debug=config.get("debug", False),
-            )
             for layer_name, tensor in activations.items():
                 logger.info(
                     f"Computing metrics: {ds_name} / {layer_name} / {agg}  shape={tuple(tensor.shape)}"
@@ -76,8 +76,8 @@ def process_checkpoint(ckpt, run_idx, pending, n_total, model_name, model_cfg, c
                     **metrics,
                 })
 
-            pd.DataFrame(all_rows).to_csv(results_path, index=False)
-            logger.info(f"Results updated in {results_path}")
+        pd.DataFrame(all_rows).to_csv(results_path, index=False)
+        logger.info(f"Results updated in {results_path}")
 
     del hf_model, tokenizer
     gc.collect()

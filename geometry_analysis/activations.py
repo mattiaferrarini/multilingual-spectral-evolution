@@ -72,16 +72,17 @@ def apply_aggregation(layer_tensor, seq_lens, aggregation, input_ids=None, speci
     return torch.stack(out, dim=0)    # (bsz, hidden_dim)
 
 
-def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len, aggregation, batch_size,
+def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len, aggregations, batch_size,
                         progress_interval=100, label="", debug=False):
     """
-    Collect activations for specified layers and samples, applying the chosen aggregation method.
-    
-    Loops through data in batches, feeds it through the model, and uses forward hooks to collect hidden states of the specified layers.
-    It then aggregates those states (e.g., takes the mean) to produce one (N, hidden_dim) tensor for each layer.
+    Collect activations for specified layers and samples, applying all aggregation methods in a single pass.
+
+    Returns {aggregation: {layer_name: tensor}} where each tensor is (N, hidden_dim).
     """
+    if isinstance(aggregations, str):
+        aggregations = [aggregations]
     n_total = len(samples)
-    accum = {f"layer_{i}": [] for i in layer_indices}
+    accum = {agg: {f"layer_{i}": [] for i in layer_indices} for agg in aggregations}
     n_collected = 0
     last_log_at = 0
     t0 = time.time()
@@ -141,12 +142,13 @@ def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len
 
         input_ids_cpu = input_ids.cpu()
         for layer_name, tensor in captured.items():
-            agg_result = apply_aggregation(
-                tensor, seq_lens, aggregation, 
-                input_ids=input_ids_cpu, special_ids=special_ids
-            )
-            if agg_result is not None:
-                accum[layer_name].append(agg_result)
+            for agg in aggregations:
+                agg_result = apply_aggregation(
+                    tensor, seq_lens, agg,
+                    input_ids=input_ids_cpu, special_ids=special_ids
+                )
+                if agg_result is not None:
+                    accum[agg][layer_name].append(agg_result)
 
         n_collected += len(batch_ids)
         if n_collected - last_log_at >= progress_interval or n_collected == n_total:
@@ -166,4 +168,7 @@ def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len
         f"[{label}] Done — {n_collected} seqs in {_fmt(elapsed)}"
         f" ({n_collected / elapsed:.1f} seq/s)"
     )
-    return {k: torch.cat(v, dim=0) for k, v in accum.items() if v}
+    return {
+        agg: {k: torch.cat(v, dim=0) for k, v in layer_dict.items() if v}
+        for agg, layer_dict in accum.items()
+    }
