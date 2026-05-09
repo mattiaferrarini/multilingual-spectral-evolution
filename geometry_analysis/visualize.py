@@ -23,6 +23,8 @@ import argparse
 import os
 import re
 
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -85,7 +87,6 @@ def _save(fig, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  {path}")
 
 
 # ── Plot type 1: training curves ─────────────────────────────────────────────
@@ -97,6 +98,7 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
 
     for metric in metrics:
         metric_label = METRIC_LABELS.get(metric, metric)
+        print(f"  {metric_label}...")
         for layer in layers:
             for agg in aggregations:
                 subset = df[(df["layer"] == layer) & (df["aggregation"] == agg)]
@@ -139,6 +141,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
 
     for metric in metrics:
         metric_label = METRIC_LABELS.get(metric, metric)
+        print(f"  {metric_label}...")
         for lang in languages:
             for agg in aggregations:
                 subset = df[(df["dataset"] == lang) & (df["aggregation"] == agg)]
@@ -178,6 +181,7 @@ def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, mode
 
     for metric in metrics:
         metric_label = METRIC_LABELS.get(metric, metric)
+        print(f"  {metric_label}...")
         for lang in languages:
             for agg in aggregations:
                 subset = df[(df["dataset"] == lang) & (df["aggregation"] == agg)]
