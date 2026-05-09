@@ -126,7 +126,7 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                 plt.tight_layout()
 
                 fname = f"training_curve_{metric}_{layer}_{agg}.png"
-                _save(fig, os.path.join(output_dir, "training_curves", fname))
+                _save(fig, os.path.join(output_dir, "training_curves", metric, fname))
 
 
 # ── Plot type 2: layer profiles ───────────────────────────────────────────────
@@ -166,7 +166,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                 plt.tight_layout()
 
                 fname = f"layer_profile_{metric}_{lang}_{agg}.png"
-                _save(fig, os.path.join(output_dir, "layer_profiles", fname))
+                _save(fig, os.path.join(output_dir, "layer_profiles", metric, fname))
 
 
 # ── Plot type 3: heatmaps ─────────────────────────────────────────────────────
@@ -191,22 +191,22 @@ def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, mode
                         if not row.empty:
                             matrix[r, c] = row[metric].values[0]
 
-                n_cells = len(checkpoints) * len(layer_nums_sorted)
-                fig_w = max(8, len(layer_nums_sorted) * 0.7)
-                fig_h = max(4, len(checkpoints) * 0.5)
+                fig_w = max(8, len(layer_nums_sorted) * 0.8)
+                fig_h = max(5, len(checkpoints) * 1.0)
                 fig, ax = plt.subplots(figsize=(fig_w, fig_h))
                 sns.heatmap(
                     matrix,
                     xticklabels=x_labels,
                     yticklabels=checkpoints,
                     cmap="viridis",
-                    annot=n_cells <= 120,
-                    fmt=".1f",
+                    annot=False,
                     ax=ax,
                     cbar_kws={"label": metric_label},
+                    linewidths=0.5,
                 )
                 ax.set_xlabel("Layer")
                 ax.set_ylabel("Checkpoint")
+                ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=9)
                 title = f"{metric_label} heatmap — {lang} | agg={agg}"
                 if model_label:
                     title = f"[{model_label}] " + title
@@ -214,7 +214,7 @@ def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, mode
                 plt.tight_layout()
 
                 fname = f"heatmap_{metric}_{lang}_{agg}.png"
-                _save(fig, os.path.join(output_dir, "heatmaps", fname))
+                _save(fig, os.path.join(output_dir, "heatmaps", metric, fname))
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
