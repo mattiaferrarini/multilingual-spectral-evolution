@@ -8,33 +8,52 @@ model:
   checkpoint_step: null     # keep every Nth checkpoint (e.g. 3 = indices 0, 3, 6, …; null = all)
   trust_remote_code: true
   torch_dtype: "bfloat16"
-  attn_implementation: "flash_attention_2"  # uncomment if flash-attn is installed
+  # attn_implementation: "flash_attention_2"  # uncomment if flash-attn is installed
 
 datasets:
   - name: "English"
     path: "HuggingFaceFW/fineweb"
     subset: "sample-10BT"
-  - name: "French"
-    path: "HuggingFaceFW/fineweb-2"
-    subset: "fra_Latn"
-  - name: "Spanish"
-    path: "HuggingFaceFW/fineweb-2"
-    subset: "spa_Latn"
-  - name: "Arabic"
-    path: "HuggingFaceFW/fineweb-2"
-    subset: "arb_Arab"
   - name: "Chinese"
     path: "HuggingFaceFW/fineweb-2"
     subset: "cmn_Hani"
+  - name: "French"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "fra_Latn"
+  - name: "Indonesian"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "ind_Latn"
+  - name: "Italian"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "ita_Latn"
   - name: "Swahili"
     path: "HuggingFaceFW/fineweb-2"
     subset: "swh_Latn"
+  - name: "Spanish"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "spa_Latn"
+  - name: "German"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "deu_Latn"
+  - name: "Hindi"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "hin_Deva"
+  - name: "Arabic"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "arb_Arab"
+  - name: "Turkish"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "tur_Latn"
+  - name: "Vietnamese"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "vie_Latn"
+  - name: "Japanese"
+    path: "HuggingFaceFW/fineweb-2"
+    subset: "jpn_Jpan"
 
 collection:
-  #   layers: ["last"]         # "last", "all", list of ints, or {start, end, step}
-  layers:
-    step: 3
-  aggregations: ["last"]   # "last", "first", or "mean"
+  layers: "all"         # "last", "all", list of ints, or {start, end, step}
+  aggregations: ["last", "mean"]   # "last", "first", or "mean"
   num_sequences: 10000
   max_sequence_length: 256
   min_sequence_length: 32
