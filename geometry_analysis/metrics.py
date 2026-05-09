@@ -8,7 +8,7 @@ if torch.cuda.is_available():
 else:
     METRICS_DEVICE = torch.device("cpu")
 
-TOP_K_VALS = [5, 10, 20, 50, 100]
+TOP_K_VALS = [1, 5, 10, 25, 50, 100, 250, 500, 1000]
 
 
 def compute_spectral_metrics(tensor):
