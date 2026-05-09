@@ -19,7 +19,7 @@ datasets:
     subset: "spa_Latn"
 
 collection:
-  layers: [0, 5, 10, 15, 20, 25, "last"]         # "last", "all", list of ints, or {start, end, step}
+  layers: "all"        # "last", "all", list of ints, or {start, end, step}
   aggregations: ["last", "mean"]   # "last", "first", or "mean"
   num_sequences: 10000
   max_sequence_length: 256

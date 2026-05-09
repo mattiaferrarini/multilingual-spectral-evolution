@@ -73,7 +73,7 @@ def apply_aggregation(layer_tensor, seq_lens, aggregation, input_ids=None, speci
 
 
 def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len, aggregations, batch_size,
-                        progress_interval=100, label="", debug=False):
+                        progress_interval=1000, label="", debug=False):
     """
     Collect activations for specified layers and samples, applying all aggregation methods in a single pass.
 
@@ -87,11 +87,14 @@ def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len
     last_log_at = 0
     t0 = time.time()
 
-    # Direct access to layers for standard architectures
+    # Direct access to layers for standard architectures.
+    # Use the base model (without LM head) to avoid materializing logits.
     if hasattr(hf_model, "model") and hasattr(hf_model.model, "layers"):
-        hf_layers = hf_model.model.layers
+        base_model = hf_model.model
+        hf_layers = base_model.layers
     elif hasattr(hf_model, "transformer") and hasattr(hf_model.transformer, "h"):
-        hf_layers = hf_model.transformer.h
+        base_model = hf_model.transformer
+        hf_layers = base_model.h
     else:
         raise RuntimeError("Could not locate decoder layers in the model.")
 
@@ -127,7 +130,7 @@ def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len
             def _h(*args):
                 out = args[2]
                 hs = out[0] if isinstance(out, (tuple, list)) else out
-                captured[key] = hs.detach().cpu()
+                captured[key] = hs.detach()
             return _h
 
         for idx in layer_indices:
@@ -135,7 +138,7 @@ def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len
 
         try:
             with torch.no_grad():
-                hf_model(input_ids, attention_mask=attention_mask)
+                base_model(input_ids, attention_mask=attention_mask)
         finally:
             for h in hooks:
                 h.remove()
@@ -172,3 +175,4 @@ def collect_activations(hf_model, tokenizer, samples, layer_indices, max_seq_len
         agg: {k: torch.cat(v, dim=0) for k, v in layer_dict.items() if v}
         for agg, layer_dict in accum.items()
     }
+
