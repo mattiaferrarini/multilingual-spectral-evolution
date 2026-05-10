@@ -9,37 +9,62 @@ model:
 # Wikipedia probe — same-domain (encyclopedic) text across all languages.
 # Compare results against fuxi_test.csv (FineWeb2) to isolate how much of the
 # per-language RankMe difference is due to text style/quality vs the language itself.
-#
-# Language selection rationale:
-#   English  — high-resource, Latin script, baseline
-#   French   — high-resource, Latin script, same as FineWeb2 test for direct comparison
-#   Arabic   — non-Latin script, web Arabic is noisy (dialects + MSA); Wikipedia is clean MSA only
-#   Swahili  — lowest-resource language in the set; FineWeb2 subset is small and noisy
-#   Chinese  — FuxiTranyu is a Chinese model so Chinese is heavily represented in training
 datasets:
   - name: "English"
     path: "wikimedia/wikipedia"
     subset: "20231101.en"
     split: "train"
+  - name: "Chinese"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.zh"
+    split: "train"
   - name: "French"
     path: "wikimedia/wikipedia"
     subset: "20231101.fr"
     split: "train"
-  - name: "Arabic"
+  - name: "Indonesian"
     path: "wikimedia/wikipedia"
-    subset: "20231101.ar"
+    subset: "20231101.id"
+    split: "train"
+  - name: "Italian"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.it"
     split: "train"
   - name: "Swahili"
     path: "wikimedia/wikipedia"
     subset: "20231101.sw"
     split: "train"
-  - name: "Chinese"
+  - name: "Spanish"
     path: "wikimedia/wikipedia"
-    subset: "20231101.zh"
+    subset: "20231101.es"
+    split: "train"
+  - name: "German"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.de"
+    split: "train"
+  - name: "Hindi"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.hi"
+    split: "train"
+  - name: "Arabic"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.ar"
+    split: "train"
+  - name: "Turkish"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.tr"
+    split: "train"
+  - name: "Vietnamese"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.vi"
+    split: "train"
+  - name: "Japanese"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.ja"
     split: "train"
 
 collection:
-  layers: {start: 0, end: 30, step: 3}  # layers 0,3,6,9,12,15,18,21,24,27 — same as fuxi_test.csv
+  layers: "all"
   aggregations: ["last", "mean"]
   num_sequences: 10000
   max_sequence_length: 256
@@ -48,5 +73,5 @@ collection:
   seed: 42
 
 output:
-  results_path: "results/fuxi_wiki_test.csv"
+  results_path: "results/fuxi_wiki.csv"
   samples_dir: "data/selected_samples_wiki"
