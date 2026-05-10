@@ -5,3 +5,5 @@ description.md
 plots/
 data/
 nohup.out
+env/
+venv/

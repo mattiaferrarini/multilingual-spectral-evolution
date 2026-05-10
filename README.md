@@ -15,6 +15,13 @@ Our group is g33.
 
 3. Copy the `.env` file to your subfolder on the cluster. 
 
+4. Setup local python environment (only visualization of results):
+```bash
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.local.txt
+```
+
 ## Submitting jobs 
 
 > ⚠️ **Warning:** Ensure you have created your own working subfolder on the cluster to avoid conflicts.
