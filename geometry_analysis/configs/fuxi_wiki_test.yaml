@@ -1,0 +1,52 @@
+debug: false
+
+model:
+  name: "TJUNLP/FuxiTranyu-8B"
+  checkpoints: ["10B", "115B", "220B", "325B", "426B", "531B"]
+  trust_remote_code: true
+  torch_dtype: "bfloat16"
+
+# Wikipedia probe — same-domain (encyclopedic) text across all languages.
+# Compare results against fuxi_test.csv (FineWeb2) to isolate how much of the
+# per-language RankMe difference is due to text style/quality vs the language itself.
+#
+# Language selection rationale:
+#   English  — high-resource, Latin script, baseline
+#   French   — high-resource, Latin script, same as FineWeb2 test for direct comparison
+#   Arabic   — non-Latin script, web Arabic is noisy (dialects + MSA); Wikipedia is clean MSA only
+#   Swahili  — lowest-resource language in the set; FineWeb2 subset is small and noisy
+#   Chinese  — FuxiTranyu is a Chinese model so Chinese is heavily represented in training
+datasets:
+  - name: "English"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.en"
+    split: "train"
+  - name: "French"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.fr"
+    split: "train"
+  - name: "Arabic"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.ar"
+    split: "train"
+  - name: "Swahili"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.sw"
+    split: "train"
+  - name: "Chinese"
+    path: "wikimedia/wikipedia"
+    subset: "20231101.zh"
+    split: "train"
+
+collection:
+  layers: {start: 0, end: 32, step: 3}  # layers 0,3,6,9,12,15,18,21,24,27 — same as fuxi_test.csv
+  aggregations: ["last", "mean"]
+  num_sequences: 10000
+  max_sequence_length: 256
+  min_sequence_length: 32
+  batch_size: 32
+  seed: 42
+
+output:
+  results_path: "results/fuxi_wiki_test.csv"
+  samples_dir: "data/selected_samples_wiki"
