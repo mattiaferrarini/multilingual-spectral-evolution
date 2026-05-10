@@ -22,6 +22,12 @@ source env/bin/activate
 pip install -r requirements.local.txt
 ```
 
+5. (optional) Set this runai project as default for your terminal session:
+```bash
+runai config project <project-name>
+```
+(e.g., `runai config project course-cs-552-pmazeved`)
+
 ## Submitting jobs 
 
 > ⚠️ **Warning:** Ensure you have created your own working subfolder on the cluster to avoid conflicts.
