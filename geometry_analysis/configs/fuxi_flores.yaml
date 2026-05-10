@@ -64,9 +64,9 @@ datasets:
 collection:
   layers: "all"        # "last", "all", list of ints, or {start, end, step}
   aggregations: ["last", "mean"]   # "last", "first", or "mean"
-  num_sequences: 10000
+  num_sequences: 1012
   max_sequence_length: 256
-  min_sequence_length: 32
+  min_sequence_length: 0
   batch_size: 32  
   seed: 42                 # controls dataset sampling; same seed = same sequences across all checkpoints
 
