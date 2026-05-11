@@ -41,6 +41,10 @@ METRIC_LABELS = {
     "top_20_var": "Top-20 Variance",
     "top_50_var": "Top-50 Variance",
     "top_100_var": "Top-100 Variance",
+    # Extra:
+    "top_250_var": "Top-250 Variance",
+    "top_500_var": "Top-500 Variance",
+    "top_1000_var": "Top-1000 Variance",
 }
 
 
