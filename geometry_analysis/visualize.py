@@ -181,6 +181,36 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                 fname = f"layer_profile_{metric}_{lang}_{agg}.png"
                 _save(fig, os.path.join(output_dir, "layer_profiles", metric, fname))
 
+        # ── All-languages summary plot (mean across checkpoints) ──────────────
+        for agg in aggregations:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            lang_colors = _language_colors(languages)
+            for lang in languages:
+                subset = df[(df["dataset"] == lang) & (df["aggregation"] == agg)]
+                if subset.empty:
+                    continue
+                mean_vals = (
+                    subset.groupby("layer")[metric].mean()
+                    .reindex(layer_nums)
+                )
+                ax.plot(x, mean_vals.values, marker="o", label=lang,
+                        color=lang_colors[lang], linewidth=2, markersize=4)
+
+            ax.set_xlabel("Layer")
+            ax.set_ylabel(metric_label)
+            if y_ranges and (metric, agg) in y_ranges:
+                ax.set_ylim(y_ranges[(metric, agg)])
+            title = f"{metric_label} by layer — all languages (checkpoint mean) | agg={agg}"
+            if model_label:
+                title = f"[{model_label}] " + title
+            ax.set_title(title)
+            ax.legend(title="Language", bbox_to_anchor=(1.02, 1), loc="upper left")
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+
+            fname = f"layer_profile_{metric}_all_languages_{agg}.png"
+            _save(fig, os.path.join(output_dir, "layer_profiles", metric, fname))
+
 
 # ── Plot type 3: heatmaps ─────────────────────────────────────────────────────
 
