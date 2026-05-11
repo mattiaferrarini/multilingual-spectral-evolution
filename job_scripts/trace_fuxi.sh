@@ -25,7 +25,7 @@ GASPAR="${GASPAR:-}"                       # Define it in .env
 GROUP="${GROUP:-g33}"                      # Define in .env or default here
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"       # Define it in .env
 REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
-CONFIG_PATH="geometry_analysis/configs/fuxi_wiki.yaml"
+CONFIG_PATH="geometry_analysis/configs/fuxi_wiki_all.yaml"
 # ==============================================
 
 # Edit this for your project. Keep outputs/checkpoints under /scratch.

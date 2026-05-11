@@ -25,6 +25,8 @@ import re
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
+from PIL import Image
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -95,7 +97,7 @@ def _save(fig, path):
 
 # ── Plot type 1: training curves ─────────────────────────────────────────────
 
-def plot_training_curves(df, metrics, languages, layers, aggregations, output_dir, model_label):
+def plot_training_curves(df, metrics, languages, layers, aggregations, output_dir, model_label, y_ranges=None):
     checkpoints = sort_checkpoints(df["checkpoint"].unique())
     x = range(len(checkpoints))
     lang_colors = _language_colors(languages)
@@ -123,6 +125,8 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                 ax.set_xticklabels(checkpoints, rotation=45, ha="right", fontsize=9)
                 ax.set_xlabel("Checkpoint (tokens seen)")
                 ax.set_ylabel(metric_label)
+                if y_ranges and (metric, agg) in y_ranges:
+                    ax.set_ylim(y_ranges[(metric, agg)])
                 title = f"{metric_label} over training\n{layer} | agg={agg}"
                 if model_label:
                     title = f"[{model_label}] " + title
@@ -137,7 +141,7 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
 
 # ── Plot type 2: layer profiles ───────────────────────────────────────────────
 
-def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir, model_label):
+def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir, model_label, y_ranges=None):
     checkpoints = sort_checkpoints(df["checkpoint"].unique())
     ckpt_colors = _checkpoint_colors(checkpoints)
     layer_nums = sorted(layers, key=layer_num)
@@ -164,6 +168,8 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
 
                 ax.set_xlabel("Layer")
                 ax.set_ylabel(metric_label)
+                if y_ranges and (metric, agg) in y_ranges:
+                    ax.set_ylim(y_ranges[(metric, agg)])
                 title = f"{metric_label} by layer — {lang} | agg={agg}"
                 if model_label:
                     title = f"[{model_label}] " + title
@@ -178,7 +184,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
 
 # ── Plot type 3: heatmaps ─────────────────────────────────────────────────────
 
-def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, model_label):
+def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, model_label, y_ranges=None):
     checkpoints = sort_checkpoints(df["checkpoint"].unique())
     layer_nums_sorted = sorted(layers, key=layer_num)
     x_labels = [layer_num(l) for l in layer_nums_sorted]
@@ -188,6 +194,8 @@ def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, mode
         print(f"  {metric_label}...")
         for lang in languages:
             for agg in aggregations:
+                vmin = y_ranges[(metric, agg)][0] if y_ranges and (metric, agg) in y_ranges else None
+                vmax = y_ranges[(metric, agg)][1] if y_ranges and (metric, agg) in y_ranges else None
                 subset = df[(df["dataset"] == lang) & (df["aggregation"] == agg)]
                 if subset.empty:
                     continue
@@ -209,6 +217,8 @@ def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, mode
                     cmap="viridis",
                     annot=False,
                     ax=ax,
+                    vmin=vmin,
+                    vmax=vmax,
                     cbar_kws={"label": metric_label},
                     linewidths=0.5,
                 )
@@ -223,6 +233,58 @@ def plot_heatmaps(df, metrics, languages, layers, aggregations, output_dir, mode
 
                 fname = f"heatmap_{metric}_{lang}_{agg}.png"
                 _save(fig, os.path.join(output_dir, "heatmaps", metric, fname))
+
+
+# ── GIF export ───────────────────────────────────────────────────────────────
+
+def make_training_curve_gifs(output_dir, metrics, aggregations, layers, duration_s):
+    """
+    Build one animated GIF per (metric, aggregation) from the training curve PNGs,
+    animating through layers in order (layer_0 → layer_N).
+
+    GIF is limited to 256 colours per frame by the format spec. Quality is maximised
+    by quantising each frame independently with the median-cut algorithm before saving.
+    For true lossless animation export, use a video format instead.
+    """
+    layer_nums_sorted = sorted(layers, key=layer_num)
+
+    for metric in metrics:
+        for agg in aggregations:
+            frames = []
+            for layer in layer_nums_sorted:
+                path = os.path.join(
+                    output_dir, "training_curves", metric,
+                    f"training_curve_{metric}_{layer}_{agg}.png",
+                )
+                if os.path.exists(path):
+                    frames.append(Image.open(path).copy())
+
+            if len(frames) < 2:
+                print(f"  Skipping GIF for {metric}/{agg} — fewer than 2 frames found.")
+                continue
+
+            frame_ms = max(1, int(duration_s * 1000 / len(frames)))
+
+            # Quantise each frame to 255 colours (median-cut) for best GIF quality.
+            # 255 instead of 256 reserves one slot for the GIF transparency index.
+            palette_frames = [
+                f.convert("RGB").quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+                for f in frames
+            ]
+
+            gif_path = os.path.join(
+                output_dir, "training_curves", metric,
+                f"training_curve_{metric}_{agg}.gif",
+            )
+            palette_frames[0].save(
+                gif_path,
+                save_all=True,
+                append_images=palette_frames[1:],
+                duration=frame_ms,
+                loop=0,
+                optimize=False,
+            )
+            print(f"  Saved {gif_path}  ({len(frames)} frames × {frame_ms} ms)")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -252,6 +314,18 @@ def parse_args():
         choices=["training_curves", "layer_profiles", "heatmaps"],
         help="Which plot types to generate (default: all three).",
     )
+    p.add_argument(
+        "--shared-y-axis", action="store_true",
+        help="Fix the y-axis range to the global min/max per metric across all plots. "
+             "Makes it easy to compare plots for different languages or layers directly.",
+    )
+    p.add_argument(
+        "--training-curves-gif-duration", type=float, default=None, metavar="SECONDS",
+        help="If set, produce an animated GIF for each (metric, aggregation) from the "
+             "training curve PNGs, animating through layers. Total duration in seconds "
+             "(e.g. --training-curves-gif-duration 10). Tip: combine with --shared-y-axis "
+             "so all frames share the same scale.",
+    )
     return p.parse_args()
 
 
@@ -273,12 +347,40 @@ def main():
     print(f"Layers:       {layers}")
     print(f"Aggregations: {aggregations}")
     print(f"Plot types:   {args.plot_types}")
+    print(f"Shared y-axis: {args.shared_y_axis}")
     print(f"Output dir:   {args.output_dir}/\n")
+
+    # Compute global y-axis range per (metric, aggregation) pair across all selected data.
+    # Keyed as y_ranges[(metric, agg)] = (vmin, vmax).
+    # A 5% margin is added so data points don't sit right at the axis edge.
+    y_ranges = None
+    if args.shared_y_axis:
+        plot_df = df[
+            df["dataset"].isin(languages) &
+            df["layer"].isin(layers) &
+            df["aggregation"].isin(aggregations)
+        ]
+        y_ranges = {}
+        for metric in metrics:
+            if metric not in plot_df.columns:
+                continue
+            for agg in aggregations:
+                subset = plot_df[plot_df["aggregation"] == agg]
+                if subset.empty:
+                    continue
+                vmin = subset[metric].min()
+                vmax = subset[metric].max()
+                pad = (vmax - vmin) * 0.05
+                y_ranges[(metric, agg)] = (vmin - pad, vmax + pad)
+        print(f"Y-axis ranges per (metric, aggregation):")
+        for (m, a), (lo, hi) in y_ranges.items():
+            print(f"  {m} / {a}: [{round(lo,2)}, {round(hi,2)}]")
+        print()
 
     kw = dict(
         metrics=metrics, languages=languages, layers=layers,
         aggregations=aggregations, output_dir=args.output_dir,
-        model_label=args.model,
+        model_label=args.model, y_ranges=y_ranges,
     )
 
     if "training_curves" in args.plot_types:
@@ -292,6 +394,18 @@ def main():
     if "heatmaps" in args.plot_types:
         print("\n[3/3] Heatmaps...")
         plot_heatmaps(df, **kw)
+
+    if args.training_curves_gif_duration is not None:
+        if "training_curves" not in args.plot_types:
+            print("\n[GIF] training_curves were not generated in this run — skipping GIF.")
+        else:
+            if not args.shared_y_axis:
+                print("\n[GIF] Warning: --shared-y-axis not set. Frames will have different "
+                      "y-scales, making the animation hard to read.")
+            print(f"\n[GIF] Building training curve GIFs ({args.training_curves_gif_duration}s)...")
+            make_training_curve_gifs(
+                args.output_dir, metrics, aggregations, layers, args.training_curves_gif_duration,
+            )
 
     print(f"\nDone — all plots saved under {args.output_dir}/")
 
