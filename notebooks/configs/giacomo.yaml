@@ -1,0 +1,66 @@
+# Configuration for M-MMLU correlation analysis with RankMe scores.
+# This file controls everything: which models, languages, evaluation params,
+# and which RankMe scores (checkpoint / layer / aggregation) to correlate against.
+
+models:
+  - name: "Apertus"
+    hf_id: "swiss-ai/Apertus-8B-2509"
+    revision: "main"                     # final checkpoint branch
+    rankme_path: "results/apertus.csv"   # relative to project root
+    trust_remote_code: true
+    torch_dtype: "bfloat16"
+
+  - name: "FuxiTranyu-8B"
+    hf_id: "TJUNLP/FuxiTranyu-8B"
+    revision: "main"
+    rankme_path: "results/fuxi.csv"
+    trust_remote_code: true
+    torch_dtype: "bfloat16"
+
+evaluation:
+  num_fewshot: 5          # standard MMLU 5-shot setting
+  batch_size: 4           # reduce to 1-2 if GPU OOM
+  device: "cuda"          # "cuda", "cpu", or "mps"
+  limit: null             # set e.g. to 100 for a quick smoke-test run
+
+  # Map each project language to its lm-evaluation-harness task name.
+  # English uses the standard Hendrycks MMLU; others use the Okapi multilingual MMLU.
+  # Okapi covers: ar, de, es, fr, hi, id, it, ja, sw, tr, vi, zh (and more).
+  languages:
+    - name: "English"
+      lm_eval_task: "mmlu"
+    - name: "French"
+      lm_eval_task: "okapi_mmlu_fr"
+    - name: "Chinese"
+      lm_eval_task: "okapi_mmlu_zh"
+    - name: "German"
+      lm_eval_task: "okapi_mmlu_de"
+    - name: "Spanish"
+      lm_eval_task: "okapi_mmlu_es"
+    - name: "Italian"
+      lm_eval_task: "okapi_mmlu_it"
+    - name: "Indonesian"
+      lm_eval_task: "okapi_mmlu_id"
+    - name: "Arabic"
+      lm_eval_task: "okapi_mmlu_ar"
+    - name: "Turkish"
+      lm_eval_task: "okapi_mmlu_tr"
+    - name: "Vietnamese"
+      lm_eval_task: "okapi_mmlu_vi"
+    - name: "Japanese"
+      lm_eval_task: "okapi_mmlu_ja"
+    - name: "Hindi"
+      lm_eval_task: "okapi_mmlu_hi"
+    - name: "Swahili"
+      lm_eval_task: "okapi_mmlu_sw"
+
+rankme:
+  # Primary RankMe configuration used for the main correlation.
+  # "auto" for checkpoint will pick "main" if present, otherwise the last row in the CSV.
+  checkpoint: "main"       # "main" = final checkpoint; "auto" = last entry in CSV
+  layer: "layer_27"        # last layer for 28-layer 8B models (0-indexed)
+  aggregation: "mean"      # "mean" pools all token positions; "last" uses the last token
+
+output:
+  results_dir: "results/mmmlu"      # M-MMLU JSON results cached here
+  figures_dir: "results/figures"    # plots saved here
