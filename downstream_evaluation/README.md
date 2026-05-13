@@ -127,13 +127,21 @@ python downstream_evaluation/merge_results.py \
 jupyter notebook downstream_evaluation/results.ipynb
 ```
 
-Update `RANKME_CSV`, `EVAL_DIR`, and `LAYER` in the config cell to match the model,
-then run all cells. All plots are saved to `downstream_evaluation/plots/`.
+> 🚨 **Set `MODEL` before running all cells.** The CSV path, last layer, and model label
+> are all derived from this single variable — do not run the notebook without setting it first.
 
-| Model | `RANKME_CSV` | `LAYER` |
-| --- | --- | --- |
-| FuxiTranyu-8B | `results/fuxi.csv` | `layer_29` |
-| Apertus-8B-2509 | `results/apertus.csv` | `layer_31` |
+In the first config cell, set:
+
+```python
+MODEL = "fuxi"      # or "apertus"
+```
+
+| Model | `MODEL` value |
+| --- | --- |
+| FuxiTranyu-8B | `"fuxi"` |
+| Apertus-8B-2509 | `"apertus"` |
+
+All plots are saved to `downstream_evaluation/plots/`.
 
 ## Output layout
 
