@@ -1,0 +1,30 @@
+benchmarks:
+
+  m_mmlu:
+    num_fewshot: 5
+    metric: "acc,none"
+    random_chance: 0.25          # 4-choice MCQ
+    languages:
+      English:    "m_mmlu_en"
+      Chinese:    "m_mmlu_zh"
+      German:     "m_mmlu_de"
+      Spanish:    "m_mmlu_es"
+      Italian:    "m_mmlu_it"
+      Arabic:     "m_mmlu_ar"
+      Japanese:   "m_mmlu_ja"
+      Hindi:      "m_mmlu_hi"
+      Indonesian: "m_mmlu_id"
+
+  xcopa:
+    num_fewshot: 0
+    metric: "acc,none"
+    random_chance: 0.50          # 2-choice commonsense
+    languages:
+      Chinese:    "xcopa_zh"
+      Italian:    "xcopa_it"
+      Vietnamese: "xcopa_vi"
+      Turkish:    "xcopa_tr"
+      Indonesian: "xcopa_id"
+      Tamil:      "xcopa_ta"
+
+# Verify task names with: python -m lm_eval --tasks list | grep -E "xcopa|m_mmlu"
