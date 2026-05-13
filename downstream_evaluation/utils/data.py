@@ -19,8 +19,17 @@ def load_rankme_data(rankme_csv: Path, layer: str, aggregation: str) -> tuple:
 
     Returns: (df_rankme, df_layer, checkpoints_all, token_counts, langs_sorted)
     """
-    df_rankme       = pd.read_csv(rankme_csv)
-    checkpoints_all = sort_checkpoints(df_rankme["checkpoint"].unique())
+    df_rankme = pd.read_csv(rankme_csv)
+
+    # Drop checkpoints whose names cannot be parsed (e.g. "main" branch on HF Hub).
+    known = [c for c in df_rankme["checkpoint"].unique()
+             if ckpt_to_tokens(c) != float("inf")]
+    dropped = set(df_rankme["checkpoint"].unique()) - set(known)
+    if dropped:
+        print(f"[INFO] Skipping unrecognised checkpoint(s): {sorted(dropped)}")
+        df_rankme = df_rankme[df_rankme["checkpoint"].isin(known)]
+
+    checkpoints_all = sort_checkpoints(known)
     token_counts    = [ckpt_to_tokens(c) for c in checkpoints_all]
 
     df_layer     = df_rankme[(df_rankme["layer"] == layer) &
