@@ -46,7 +46,7 @@ REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
 CHECKPOINT="${1:-}"
 MODEL_KEY="${2:-fuxi}"
 LIMIT="${3:-}"
-SHELL_JOB="${SHELL_JOB:-temp-shell}"   # override with: SHELL_JOB=temp-shell3 ./submit_eval.sh ...
+SHELL_JOB="<shell-job>"   # replace with your running shell job name (e.g. temp-shell3)
 
 if [[ -z "${CHECKPOINT}" ]]; then
     echo "ERROR: checkpoint argument is required." >&2
