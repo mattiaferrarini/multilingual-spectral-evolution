@@ -154,8 +154,9 @@ def merge_with_rankme(
     df_rankme["rankme_aggregation"] = aggregation
     logger.info(f"After filtering ({layer}, agg={aggregation}): {len(df_rankme)} rows")
 
-    rankme_cols = ["checkpoint", "language", "rankme", "pr", "alpha_req",
-                   "rankme_layer", "rankme_aggregation"]
+    # Drop layer/aggregation — already stored in rankme_layer/rankme_aggregation.
+    # Keep all metric columns (rankme, pr, alpha_req, top_k_var, …).
+    rankme_cols = [c for c in df_rankme.columns if c not in ("layer", "aggregation")]
     merged = df_eval.merge(
         df_rankme[rankme_cols],
         on=["checkpoint", "language"],
