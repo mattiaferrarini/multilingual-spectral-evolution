@@ -54,9 +54,24 @@ if [[ -z "${CHECKPOINT}" ]]; then
 fi
 
 case "${MODEL_KEY}" in
-    fuxi)    MODEL_NAME="TJUNLP/FuxiTranyu-8B" ;;
-    apertus) MODEL_NAME="swiss-ai/Apertus-8B-2509" ;;
-    *)       MODEL_NAME="${MODEL_KEY}" ;;   # pass a full HF repo ID directly
+    fuxi)
+        MODEL_NAME="TJUNLP/FuxiTranyu-8B"
+        RANKME_CSV="/scratch/${REPO_NAME}/results/fuxi.csv"
+        MERGED_CSV="/scratch/${REPO_NAME}/results/fuxi_merged.csv"
+        LAYER="layer_29"
+        ;;
+    apertus)
+        MODEL_NAME="swiss-ai/Apertus-8B-2509"
+        RANKME_CSV="/scratch/${REPO_NAME}/results/apertus.csv"
+        MERGED_CSV="/scratch/${REPO_NAME}/results/apertus_merged.csv"
+        LAYER="layer_31"
+        ;;
+    *)
+        MODEL_NAME="${MODEL_KEY}"
+        RANKME_CSV=""
+        MERGED_CSV=""
+        LAYER=""
+        ;;
 esac
 
 # ── Validation ─────────────────────────────────────────────────────────────────
@@ -85,6 +100,16 @@ if [[ -n "${LIMIT}" ]]; then
     LIMIT_ARG="--limit ${LIMIT}"
 fi
 
+# Build the merge command (only for fuxi/apertus where we have a RankMe CSV)
+MERGE_CMD=""
+if [[ -n "${RANKME_CSV}" ]]; then
+    MERGE_CMD=" && python downstream_evaluation/merge_results.py \
+  --eval-dir /scratch/${REPO_NAME}/results/eval \
+  --rankme-csv ${RANKME_CSV} \
+  --output ${MERGED_CSV} \
+  --layer ${LAYER}"
+fi
+
 EVAL_COMMAND="\
 cd /scratch/${REPO_NAME} && \
 pip install -r requirements.txt -q && \
@@ -93,13 +118,14 @@ python downstream_evaluation/evaluate.py \
   --checkpoint ${CHECKPOINT} \
   --output-dir /scratch/${REPO_NAME}/results/eval \
   --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml \
-  ${LIMIT_ARG}"
+  ${LIMIT_ARG}${MERGE_CMD}"
 
 echo ">>> Submitting eval job '${JOB_NAME}'"
 echo "    Model      : ${MODEL_NAME}"
 echo "    Checkpoint : ${CHECKPOINT}"
 echo "    Limit      : ${LIMIT:-none (full run)}"
-echo "    Output     : /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/"
+echo "    Eval output: /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/"
+echo "    Merged CSV : ${MERGED_CSV:-n/a (custom model — run merge_results.py manually)}"
 
 runai training submit "${JOB_NAME}" \
   -p "${PROJECT}" \
@@ -129,8 +155,8 @@ Stream logs : runai training logs -f ${JOB_NAME} -p ${PROJECT}
 Describe    : runai training standard describe ${JOB_NAME} -p ${PROJECT}
 Stop        : runai training delete ${JOB_NAME} -p ${PROJECT}
 
-Results land at:
-  /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/{task}__{language}.json
+After all jobs complete, fetch the merged CSV locally (one small file):
+  runai training exec <shell-job> -p ${PROJECT} -- cat ${MERGED_CSV} > results/$(basename ${MERGED_CSV:-fuxi_merged.csv})
 
 The job is resumable: re-submit with the same command after preemption.
 Completed (task, language) pairs are skipped automatically.

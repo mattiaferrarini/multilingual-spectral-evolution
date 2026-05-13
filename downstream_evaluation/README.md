@@ -9,8 +9,9 @@ and **XCOPA** (6 languages, 0-shot) using [lm-evaluation-harness](https://github
 | --- | --- |
 | `configs/benchmarks.yaml` | Benchmark definitions (tasks, languages, few-shot settings) |
 | `evaluate.py` | Resumable evaluation runner — one job per checkpoint |
-| `submit_eval.sh` | Submits `evaluate.py` as a cluster job via `runai` |
+| `submit_eval.sh` | Submits `evaluate.py` as a cluster job via `runai`; auto-runs `merge_results.py` after eval |
 | `merge_results.py` | Joins eval JSONs with RankMe CSV into a single merged CSV |
+| `fetch_json_results.py` | Copies individual eval JSONs from cluster to local (debugging / re-merge) |
 | `check_tasks.py` | Verifies all lm-eval task names in `benchmarks.yaml` are valid |
 | `results.ipynb` | Analysis notebook (phase identification, grokking, correlations) |
 
@@ -99,27 +100,28 @@ already have a JSON result file.
 
 ## After all jobs complete
 
-### 1. Merge eval results with RankMe metrics
+### 1. Fetch the merged CSV
 
-**Fuxi** (last layer = 29):
+Each eval job automatically runs `merge_results.py` after `evaluate.py` completes,
+updating `fuxi_merged.csv` / `apertus_merged.csv` on `/scratch`. Once all jobs finish,
+copy just that one file locally (spin up a temp shell first if needed):
 
-```bash
-python downstream_evaluation/merge_results.py \
-    --eval-dir results/eval \
-    --rankme-csv results/fuxi.csv \
-    --output results/fuxi_merged.csv \
-    --layer layer_29
-```
-
-**Apertus** (last layer = 31):
+**Fuxi:**
 
 ```bash
-python downstream_evaluation/merge_results.py \
-    --eval-dir results/eval \
-    --rankme-csv results/apertus.csv \
-    --output results/apertus_merged.csv \
-    --layer layer_31
+runai training exec <shell-job> -p course-cs-552-<gaspar> -- \
+    cat /scratch/<folder>/open-project-m2-jpmg/results/fuxi_merged.csv > results/fuxi_merged.csv
 ```
+
+**Apertus:**
+
+```bash
+runai training exec <shell-job> -p course-cs-552-<gaspar> -- \
+    cat /scratch/<folder>/open-project-m2-jpmg/results/apertus_merged.csv > results/apertus_merged.csv
+```
+
+> If you need the raw JSONs (e.g. to re-run merge with a different layer), use
+> `downstream_evaluation/fetch_json_results.py`.
 
 ### 2. Open the analysis notebook
 
