@@ -2,6 +2,7 @@ __pycache__
 .env
 .gitignore
 description.md
+CLAUDE.md
 plots/
 data/
 nohup.out
