@@ -6,12 +6,20 @@
 # partial runs after preemption without redoing completed (task, language) pairs.
 #
 # Usage:
-#   ./downstream_evaluation/submit_eval.sh <checkpoint> [fuxi|apertus|<hf-repo-id>]
+#   ./downstream_evaluation/submit_eval.sh <checkpoint> [fuxi|apertus|<hf-repo-id>] [limit]
+#
+# The optional limit argument passes --limit N to evaluate.py (e.g. 5 examples
+# per task). Use it to smoke-test a single checkpoint before the full run.
 #
 # Examples:
-#   ./downstream_evaluation/submit_eval.sh 531B
-#   ./downstream_evaluation/submit_eval.sh 531B fuxi
+#   ./downstream_evaluation/submit_eval.sh 531B fuxi 5   # smoke test — fast, ~5 min
+#   ./downstream_evaluation/submit_eval.sh 531B fuxi     # full run
 #   ./downstream_evaluation/submit_eval.sh step2627139-tokens15T apertus
+#
+# Recommended workflow before submitting all checkpoints:
+#   1. ./downstream_evaluation/submit_eval.sh 531B fuxi 5
+#   2. Verify JSONs and run merge_results.py + results.ipynb locally
+#   3. If OK, submit all checkpoints (no limit)
 #
 # To submit all Fuxi checkpoints at once:
 #   for ckpt in 10B 115B 220B 325B 426B 531B; do
@@ -37,6 +45,7 @@ REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
 # ── Argument handling ──────────────────────────────────────────────────────────
 CHECKPOINT="${1:-}"
 MODEL_KEY="${2:-fuxi}"
+LIMIT="${3:-}"
 
 if [[ -z "${CHECKPOINT}" ]]; then
     echo "ERROR: checkpoint argument is required." >&2
@@ -70,6 +79,11 @@ SCRATCH_PVC="course-cs-552-scratch-${GROUP}"
 SHARED_RO_PVC="course-cs-552-shared-ro"
 SHARED_RW_PVC="course-cs-552-shared-rw"
 
+LIMIT_ARG=""
+if [[ -n "${LIMIT}" ]]; then
+    LIMIT_ARG="--limit ${LIMIT}"
+fi
+
 EVAL_COMMAND="\
 cd /scratch/${REPO_NAME} && \
 pip install -r requirements.txt -q && \
@@ -77,11 +91,13 @@ python downstream_evaluation/evaluate.py \
   --model ${MODEL_NAME} \
   --checkpoint ${CHECKPOINT} \
   --output-dir /scratch/${REPO_NAME}/results/eval \
-  --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml"
+  --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml \
+  ${LIMIT_ARG}"
 
 echo ">>> Submitting eval job '${JOB_NAME}'"
 echo "    Model      : ${MODEL_NAME}"
 echo "    Checkpoint : ${CHECKPOINT}"
+echo "    Limit      : ${LIMIT:-none (full run)}"
 echo "    Output     : /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/"
 
 runai submit \
