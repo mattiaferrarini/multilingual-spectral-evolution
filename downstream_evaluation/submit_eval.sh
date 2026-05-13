@@ -75,6 +75,11 @@ case "${MODEL_KEY}" in
         ;;
 esac
 
+# NOTE: merge_results.py is NOT run automatically by each job.
+# Running it per-job causes race conditions when multiple checkpoints finish
+# at the same time and overwrite the same merged CSV. Run it manually once
+# after all jobs complete (see instructions printed below).
+
 # ── Validation ─────────────────────────────────────────────────────────────────
 if [[ -z "${GASPAR}" ]]; then
     echo "ERROR: GASPAR is not set. Define it in .env or export it." >&2; exit 1
@@ -101,16 +106,6 @@ if [[ -n "${LIMIT}" ]]; then
     LIMIT_ARG="--limit ${LIMIT}"
 fi
 
-# Build the merge command (only for fuxi/apertus where we have a RankMe CSV)
-MERGE_CMD=""
-if [[ -n "${RANKME_CSV}" ]]; then
-    MERGE_CMD=" && python downstream_evaluation/merge_results.py \
-  --eval-dir /scratch/${REPO_NAME}/results/eval \
-  --rankme-csv ${RANKME_CSV} \
-  --output ${MERGED_CSV} \
-  --layer ${LAYER}"
-fi
-
 EVAL_COMMAND="\
 cd /scratch/${REPO_NAME} && \
 pip install -r requirements.txt -q && \
@@ -119,14 +114,13 @@ python downstream_evaluation/evaluate.py \
   --checkpoint ${CHECKPOINT} \
   --output-dir /scratch/${REPO_NAME}/results/eval \
   --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml \
-  ${LIMIT_ARG}${MERGE_CMD}"
+  ${LIMIT_ARG}"
 
 echo ">>> Submitting eval job '${JOB_NAME}'"
 echo "    Model      : ${MODEL_NAME}"
 echo "    Checkpoint : ${CHECKPOINT}"
 echo "    Limit      : ${LIMIT:-none (full run)}"
 echo "    Eval output: /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/"
-echo "    Merged CSV : ${MERGED_CSV:-n/a (custom model — run merge_results.py manually)}"
 
 runai training submit "${JOB_NAME}" \
   -p "${PROJECT}" \
@@ -156,9 +150,17 @@ Stream logs : runai training logs -f ${JOB_NAME} -p ${PROJECT}
 Describe    : runai training standard describe ${JOB_NAME} -p ${PROJECT}
 Stop        : runai training delete ${JOB_NAME} -p ${PROJECT}
 
-After all jobs complete, fetch the merged CSV locally (one small file):
-  runai training exec ${SHELL_JOB} -p ${PROJECT} -- cat ${MERGED_CSV} > results/$(basename ${MERGED_CSV:-fuxi_merged.csv})
-
 The job is resumable: re-submit with the same command after preemption.
 Completed (task, language) pairs are skipped automatically.
+
+After ALL checkpoint jobs complete, run merge once manually (avoids race conditions):
+  runai training exec ${SHELL_JOB} -p ${PROJECT} -- bash -c \\
+    "cd /scratch/${REPO_NAME} && python downstream_evaluation/merge_results.py \\
+      --eval-dir results/eval \\
+      --rankme-csv ${RANKME_CSV:-results/<model>.csv} \\
+      --output ${MERGED_CSV:-results/<model>_merged.csv} \\
+      --layer ${LAYER:-layer_29}"
+
+Then fetch the merged CSV locally:
+  runai training exec ${SHELL_JOB} -p ${PROJECT} -- cat ${MERGED_CSV:-results/<model>_merged.csv} > results/$(basename ${MERGED_CSV:-merged.csv})
 EOF
