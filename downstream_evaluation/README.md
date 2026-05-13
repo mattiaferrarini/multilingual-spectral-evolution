@@ -111,7 +111,7 @@ after all jobs are done (spin up a temp shell first if needed):
 ```bash
 runai training exec <shell-job> -p course-cs-552-<gaspar> -- bash -c \
     "cd /scratch/<folder>/open-project-m2-jpmg && \
-     python downstream_evaluation/merge_results.py \
+     python3 downstream_evaluation/merge_results.py \
        --eval-dir results/eval \
        --rankme-csv results/fuxi.csv \
        --output results/fuxi_merged.csv \
@@ -123,7 +123,7 @@ runai training exec <shell-job> -p course-cs-552-<gaspar> -- bash -c \
 ```bash
 runai training exec <shell-job> -p course-cs-552-<gaspar> -- bash -c \
     "cd /scratch/<folder>/open-project-m2-jpmg && \
-     python downstream_evaluation/merge_results.py \
+     python3 downstream_evaluation/merge_results.py \
        --eval-dir results/eval \
        --rankme-csv results/apertus.csv \
        --output results/apertus_merged.csv \
