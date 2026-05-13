@@ -99,7 +99,8 @@ def plot_overlay(df_eval, df_layer, df_phases, df_grokking, task_languages, rand
                 "checkpoint", key=lambda s: s.map(ckpt_to_tokens))
             etoks = [ckpt_to_tokens(c) for c in sub_e["checkpoint"]]
             ax2.plot(etoks, sub_e["accuracy"], marker="s", lw=2, color="crimson", ms=5, ls="--")
-            ax2.axhline(random_chance[task], color="gray", ls=":", alpha=0.6, lw=1)
+            ax2.axhline(random_chance[task], color="black", ls="--", alpha=0.9, lw=1.5)
+            ax2.set_ylim(0, 1)
             ax2.set_ylabel("Accuracy", color="crimson", fontsize=8)
             ax2.tick_params(axis="y", colors="crimson")
 

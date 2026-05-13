@@ -26,7 +26,6 @@ def load_rankme_data(rankme_csv: Path, layer: str, aggregation: str) -> tuple:
              if ckpt_to_tokens(c) != float("inf")]
     dropped = set(df_rankme["checkpoint"].unique()) - set(known)
     if dropped:
-        print(f"[INFO] Skipping unrecognised checkpoint(s): {sorted(dropped)}")
         df_rankme = df_rankme[df_rankme["checkpoint"].isin(known)]
 
     checkpoints_all = sort_checkpoints(known)

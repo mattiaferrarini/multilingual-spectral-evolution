@@ -23,7 +23,7 @@ def _correlate(x, y, min_pairs: int = 4) -> dict | None:
     xv, yv     = x[valid], y[valid]
     sp_r, sp_p = stats.spearmanr(xv, yv)
     pe_r, pe_p = stats.pearsonr(xv, yv)
-    return {"n":          int(valid.sum()),
+    return {"n_languages": int(valid.sum()),
             "spearman_r": round(float(sp_r), 4), "spearman_p": round(float(sp_p), 4),
             "pearson_r":  round(float(pe_r), 4), "pearson_p":  round(float(pe_p), 4)}
 
@@ -49,7 +49,7 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
                                     ("peak_accuracy",   "Peak accuracy")]:
                 corr = _correlate(merged[x_col], merged[y_col])
                 row  = {"task": task, "predictor (x)": x_label, "outcome (y)": y_label}
-                row.update(corr if corr else {"n": 0, "spearman_r": None, "spearman_p": None,
+                row.update(corr if corr else {"n_languages": 0, "spearman_r": None, "spearman_p": None,
                                                "pearson_r": None, "pearson_p": None})
                 records.append(row)
     return pd.DataFrame(records)

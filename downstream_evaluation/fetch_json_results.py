@@ -31,7 +31,7 @@ GASPAR          = "jpazeved"
 PROJECT         = f"course-cs-552-{GASPAR}"
 CLUSTER_FOLDER  = "joao"
 REPO_NAME       = "open-project-m2-jpmg"
-SHELL_JOB       = "temp-shell3"   # a running sleep job to exec into
+SHELL_JOB       = "temp-shell3"   # specify the name of the job here !!!
 REMOTE_EVAL_DIR = f"/scratch/{CLUSTER_FOLDER}/{REPO_NAME}/results/eval"
 
 _DEFAULT_CONFIG = Path(__file__).parent / "configs" / "benchmarks.yaml"
