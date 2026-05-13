@@ -104,7 +104,7 @@ echo "    Output     : /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/"
 runai training submit "${JOB_NAME}" \
   -p "${PROJECT}" \
   --image "${IMAGE}" \
-  --gpu "${GPUS}" \
+  --gpu-devices-request "${GPUS}" \
   --large-shm \
   --node-pools "${NODE}" \
   --working-dir /scratch \
