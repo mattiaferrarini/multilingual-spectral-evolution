@@ -153,14 +153,5 @@ Stop        : runai training delete ${JOB_NAME} -p ${PROJECT}
 The job is resumable: re-submit with the same command after preemption.
 Completed (task, language) pairs are skipped automatically.
 
-After ALL checkpoint jobs complete, run merge once manually (avoids race conditions):
-  runai training exec ${SHELL_JOB} -p ${PROJECT} -- bash -c \\
-    "cd /scratch/${REPO_NAME} && python downstream_evaluation/merge_results.py \\
-      --eval-dir results/eval \\
-      --rankme-csv ${RANKME_CSV:-results/<model>.csv} \\
-      --output ${MERGED_CSV:-results/<model>_merged.csv} \\
-      --layer ${LAYER:-layer_29}"
-
-Then fetch the merged CSV locally:
-  runai training exec ${SHELL_JOB} -p ${PROJECT} -- cat ${MERGED_CSV:-results/<model>_merged.csv} > results/$(basename ${MERGED_CSV:-merged.csv})
+See README for how to merge results and fetch the CSV after all jobs complete.
 EOF

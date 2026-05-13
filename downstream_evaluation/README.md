@@ -100,11 +100,37 @@ already have a JSON result file.
 
 ## After all jobs complete
 
-### 1. Fetch the merged CSV
+### 1. Run merge once manually
 
-Each eval job automatically runs `merge_results.py` after `evaluate.py` completes,
-updating `fuxi_merged.csv` / `apertus_merged.csv` on `/scratch`. Once all jobs finish,
-copy just that one file locally (spin up a temp shell first if needed):
+Each eval job only runs `evaluate.py`. Running `merge_results.py` per-job would cause
+race conditions when multiple checkpoints finish at the same time. Run it once manually
+after all jobs are done (spin up a temp shell first if needed):
+
+**Fuxi:**
+
+```bash
+runai training exec <shell-job> -p course-cs-552-<gaspar> -- bash -c \
+    "cd /scratch/<folder>/open-project-m2-jpmg && \
+     python downstream_evaluation/merge_results.py \
+       --eval-dir results/eval \
+       --rankme-csv results/fuxi.csv \
+       --output results/fuxi_merged.csv \
+       --layer layer_29"
+```
+
+**Apertus:**
+
+```bash
+runai training exec <shell-job> -p course-cs-552-<gaspar> -- bash -c \
+    "cd /scratch/<folder>/open-project-m2-jpmg && \
+     python downstream_evaluation/merge_results.py \
+       --eval-dir results/eval \
+       --rankme-csv results/apertus.csv \
+       --output results/apertus_merged.csv \
+       --layer layer_31"
+```
+
+### 2. Fetch the merged CSV locally
 
 **Fuxi:**
 
@@ -153,7 +179,7 @@ results/eval/
 │   ├── m_mmlu__English.json
 │   ├── m_mmlu__Chinese.json
 │   ├── ...
-│   └── xcopa__Tamil.json
+│   └── xcopa__Vietnamese.json
 ├── step50000-tokens210B/         ← Apertus checkpoint
 │   ├── m_mmlu__English.json
 │   └── ...
