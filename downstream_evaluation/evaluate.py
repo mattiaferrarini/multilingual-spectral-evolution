@@ -43,39 +43,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Benchmark defaults (overridable via --config) ─────────────────────────────
+_DEFAULT_CONFIG = Path(__file__).parent / "configs" / "benchmarks.yaml"
 
-DEFAULT_BENCHMARKS = {
-    "m_mmlu": {
-        "num_fewshot": 5,
-        "metric": "acc,none",
-        "random_chance": 0.25,
-        "languages": {
-            "English":    "m_mmlu_en",
-            "Chinese":    "m_mmlu_zh",
-            "German":     "m_mmlu_de",
-            "Spanish":    "m_mmlu_es",
-            "Italian":    "m_mmlu_it",
-            "Arabic":     "m_mmlu_ar",
-            "Japanese":   "m_mmlu_ja",
-            "Hindi":      "m_mmlu_hi",
-            "Indonesian": "m_mmlu_id",
-        },
-    },
-    "xcopa": {
-        "num_fewshot": 0,
-        "metric": "acc,none",
-        "random_chance": 0.50,
-        "languages": {
-            "Chinese":    "xcopa_zh",
-            "Italian":    "xcopa_it",
-            "Vietnamese": "xcopa_vi",
-            "Turkish":    "xcopa_tr",
-            "Indonesian": "xcopa_id",
-            "Tamil":      "xcopa_ta",
-        },
-    },
-}
+
+def _load_benchmarks(config_path: Path) -> dict:
+    with open(config_path) as f:
+        return yaml.safe_load(f)["benchmarks"]
 
 
 # ── Resume logic (mirrors geometry_analysis/utils.py::load_existing_results) ──
@@ -161,8 +134,8 @@ def parse_args():
                    help="Branch / revision name (e.g. 531B or step2627139-tokens15T)")
     p.add_argument("--output-dir", default="results/eval",
                    help="Root directory for JSON outputs (default: results/eval).")
-    p.add_argument("--config",     default=None,
-                   help="Path to benchmarks YAML config (default: built-in config).")
+    p.add_argument("--config",     default=str(_DEFAULT_CONFIG),
+                   help="Path to benchmarks YAML config (default: configs/benchmarks.yaml).")
     p.add_argument("--tasks",      nargs="+", default=None,
                    help="Benchmark groups to run. Default: all groups in config.")
     p.add_argument("--limit",      type=int, default=None,
@@ -178,13 +151,12 @@ def main():
     output_dir = Path(args.output_dir)
 
     # ── Load benchmark config ──────────────────────────────────────────────────
-    if args.config and Path(args.config).exists():
-        with open(args.config) as f:
-            benchmarks = yaml.safe_load(f).get("benchmarks", DEFAULT_BENCHMARKS)
-        logger.info(f"Loaded benchmark config from {args.config}")
-    else:
-        benchmarks = DEFAULT_BENCHMARKS
-        logger.info("Using built-in benchmark config.")
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logger.error(f"Config not found: {config_path}")
+        sys.exit(1)
+    benchmarks = _load_benchmarks(config_path)
+    logger.info(f"Loaded benchmark config from {config_path}")
 
     task_names = args.tasks or list(benchmarks.keys())
     benchmarks = {k: v for k, v in benchmarks.items() if k in task_names}

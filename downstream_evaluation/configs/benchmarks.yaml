@@ -11,7 +11,6 @@ benchmarks:
       Spanish:    "m_mmlu_es"
       Italian:    "m_mmlu_it"
       Arabic:     "m_mmlu_ar"
-      Japanese:   "m_mmlu_ja"
       Hindi:      "m_mmlu_hi"
       Indonesian: "m_mmlu_id"
 
@@ -27,4 +26,4 @@ benchmarks:
       Indonesian: "xcopa_id"
       Tamil:      "xcopa_ta"
 
-# Verify task names with: python -m lm_eval --tasks list | grep -E "xcopa|m_mmlu"
+# Verify task names with: python downstream_evaluation/check_tasks.py
