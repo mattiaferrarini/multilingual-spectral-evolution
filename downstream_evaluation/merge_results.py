@@ -204,8 +204,8 @@ def main():
     merged.to_csv(out, index=False)
     logger.info(f"Merged CSV saved → {out}  ({len(merged)} rows)")
 
-    print("\n── Accuracy summary ──────────────────────────────────────────────")
-    print(merged.groupby(["task", "language"])[["accuracy", "rankme"]].first().to_string())
+    print("\n── Accuracy summary (all checkpoints) ───────────────────────────")
+    print(merged[["task", "language", "checkpoint", "accuracy", "rankme"]].to_string(index=False))
 
 
 if __name__ == "__main__":
