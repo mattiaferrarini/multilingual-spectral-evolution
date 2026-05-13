@@ -68,9 +68,10 @@ if [[ -z "${CLUSTER_FOLDER}" ]]; then
 fi
 
 # ── Job configuration ──────────────────────────────────────────────────────────
-# Truncate long checkpoint names so the job name stays under the k8s limit
+# Truncate long checkpoint names so the job name stays under the k8s limit.
+# Lowercase everything — Kubernetes requires all-lowercase job names.
 SAFE_CKPT="${CHECKPOINT//\//_}"
-JOB_NAME="eval-${MODEL_KEY}-${SAFE_CKPT:0:24}"
+JOB_NAME=$(echo "eval-${MODEL_KEY}-${SAFE_CKPT:0:24}" | tr '[:upper:]' '[:lower:]')
 PROJECT="course-cs-552-${GASPAR}"
 GPUS=1
 NODE="${NODE:-a100-40g}"
@@ -100,17 +101,16 @@ echo "    Checkpoint : ${CHECKPOINT}"
 echo "    Limit      : ${LIMIT:-none (full run)}"
 echo "    Output     : /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/"
 
-runai submit \
-  --name "${JOB_NAME}" \
+runai training submit "${JOB_NAME}" \
   -p "${PROJECT}" \
   --image "${IMAGE}" \
   --gpu "${GPUS}" \
   --large-shm \
   --node-pools "${NODE}" \
   --working-dir /scratch \
-  --environment HF_HOME=/scratch/hf_cache \
-  --environment HF_HUB_ENABLE_HF_TRANSFER=1 \
-  --environment EVAL_COMMAND="${EVAL_COMMAND}" \
+  --environment-variable HF_HOME=/scratch/hf_cache \
+  --environment-variable HF_HUB_ENABLE_HF_TRANSFER=1 \
+  --environment-variable EVAL_COMMAND="${EVAL_COMMAND}" \
   --existing-pvc "claimname=${SCRATCH_PVC},path=/scratch" \
   --existing-pvc "claimname=${SHARED_RO_PVC},path=/shared-ro" \
   --existing-pvc "claimname=${SHARED_RW_PVC},path=/shared-rw" \
@@ -125,9 +125,9 @@ cat <<EOF
 
 >>> Job submitted: ${JOB_NAME}
 
-Stream logs : runai logs -f ${JOB_NAME} -p ${PROJECT}
-Describe    : runai describe job ${JOB_NAME} -p ${PROJECT}
-Stop        : runai delete job ${JOB_NAME} -p ${PROJECT}
+Stream logs : runai training logs -f ${JOB_NAME} -p ${PROJECT}
+Describe    : runai training standard describe ${JOB_NAME} -p ${PROJECT}
+Stop        : runai training delete ${JOB_NAME} -p ${PROJECT}
 
 Results land at:
   /scratch/${REPO_NAME}/results/eval/${SAFE_CKPT}/{task}__{language}.json
