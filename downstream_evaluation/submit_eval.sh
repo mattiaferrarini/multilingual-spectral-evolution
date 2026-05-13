@@ -46,6 +46,7 @@ REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
 CHECKPOINT="${1:-}"
 MODEL_KEY="${2:-fuxi}"
 LIMIT="${3:-}"
+SHELL_JOB="${SHELL_JOB:-temp-shell}"   # override with: SHELL_JOB=temp-shell3 ./submit_eval.sh ...
 
 if [[ -z "${CHECKPOINT}" ]]; then
     echo "ERROR: checkpoint argument is required." >&2
@@ -156,7 +157,7 @@ Describe    : runai training standard describe ${JOB_NAME} -p ${PROJECT}
 Stop        : runai training delete ${JOB_NAME} -p ${PROJECT}
 
 After all jobs complete, fetch the merged CSV locally (one small file):
-  runai training exec <shell-job> -p ${PROJECT} -- cat ${MERGED_CSV} > results/$(basename ${MERGED_CSV:-fuxi_merged.csv})
+  runai training exec ${SHELL_JOB} -p ${PROJECT} -- cat ${MERGED_CSV} > results/$(basename ${MERGED_CSV:-fuxi_merged.csv})
 
 The job is resumable: re-submit with the same command after preemption.
 Completed (task, language) pairs are skipped automatically.
