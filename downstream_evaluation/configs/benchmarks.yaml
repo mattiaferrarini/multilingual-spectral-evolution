@@ -24,6 +24,5 @@ benchmarks:
       Vietnamese: "xcopa_vi"
       Turkish:    "xcopa_tr"
       Indonesian: "xcopa_id"
-      Tamil:      "xcopa_ta"
 
 # Verify task names with: python downstream_evaluation/check_tasks.py
