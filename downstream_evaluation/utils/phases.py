@@ -1,3 +1,14 @@
+"""
+Training phase identification from RankMe trajectories.
+
+Detects two phases in the RankMe curve for each language:
+  - Entropy-seeking: RankMe rises from the first checkpoint to its global peak.
+  - Compression-seeking: RankMe falls from the peak to the end of training.
+
+The main entry point is compute_phases(), which returns a DataFrame with onset
+and duration (in billions of tokens) for each phase and language.
+"""
+
 import numpy as np
 import pandas as pd
 

@@ -1,3 +1,10 @@
+"""
+Checkpoint name parsing and token-axis formatting utilities.
+
+Converts checkpoint names (e.g. "531B", "step2627139-tokens15T") to a common
+numeric unit (billions of tokens) used as the x-axis across all plots.
+"""
+
 import re
 from matplotlib.ticker import FuncFormatter
 

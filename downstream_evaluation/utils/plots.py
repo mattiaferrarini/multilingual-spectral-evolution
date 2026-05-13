@@ -1,3 +1,17 @@
+"""
+Plotting functions for the downstream evaluation results notebook.
+
+Three plots are provided:
+  - plot_rankme_phases: per-language RankMe trajectories with entropy/compression
+      phase regions shaded, giving a visual overview of the two training phases.
+  - plot_overlay: dual-axis plots overlaying RankMe (left) and downstream accuracy
+      (right) for each language, with phase shading and grokking onset marker.
+  - plot_correlation_scatter: scatter of compression-seeking onset vs peak accuracy,
+      one panel per task (m-MMLU / XCOPA), with a linear regression line.
+
+All plots are saved to plots_dir and displayed inline.
+"""
+
 from pathlib import Path
 
 import matplotlib.patches as mpatches

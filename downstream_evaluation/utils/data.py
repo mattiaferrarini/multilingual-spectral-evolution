@@ -1,3 +1,11 @@
+"""
+Data loading utilities for the downstream evaluation pipeline.
+
+Loads the RankMe geometry CSV (fuxi.csv / apertus.csv) and the merged
+evaluation CSV produced by merge_results.py, returning clean DataFrames
+ready for analysis.
+"""
+
 from pathlib import Path
 
 import pandas as pd

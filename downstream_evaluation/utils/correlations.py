@@ -1,3 +1,15 @@
+"""
+Correlation analysis between compression phase geometry and downstream accuracy.
+
+Tests whether the onset or duration of the compression-seeking phase predicts
+downstream performance (grokking onset, peak accuracy) using Spearman and
+Pearson correlations. Computed separately for m-MMLU and XCOPA — never pooled.
+
+The main entry point is compute_correlations_table(), which returns a tidy
+DataFrame with correlation coefficients and p-values for each predictor-outcome
+pair and task.
+"""
+
 import numpy as np
 import pandas as pd
 from scipy import stats

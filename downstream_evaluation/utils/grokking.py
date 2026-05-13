@@ -1,3 +1,14 @@
+"""
+Grokking detection for downstream evaluation results.
+
+Grokking is defined as the first training checkpoint where accuracy exceeds
+random chance by a threshold (default 15 pp) for at least a minimum number
+of consecutive checkpoints (default 2). Both parameters are configurable.
+
+The main entry point is compute_grokking(), which returns a DataFrame with the
+grokking onset token count and peak accuracy per (task, language) pair.
+"""
+
 import numpy as np
 import pandas as pd
 
