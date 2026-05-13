@@ -204,7 +204,8 @@ def main():
     merged.to_csv(out, index=False)
     logger.info(f"Merged CSV saved → {out}  ({len(merged)} rows)")
 
-    print("\n── Accuracy summary (all checkpoints) ───────────────────────────")
+    model_label = Path(args.rankme_csv).stem   # e.g. "fuxi" or "apertus"
+    print(f"\n── Accuracy summary [{model_label}] — all checkpoints ────────────────")
     print(merged[["task", "language", "checkpoint", "accuracy", "rankme"]].to_string(index=False))
 
 
