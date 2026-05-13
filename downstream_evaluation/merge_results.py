@@ -29,6 +29,7 @@ import re
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -36,11 +37,15 @@ logger = logging.getLogger(__name__)
 # Metric keys tried in priority order when parsing lm-eval JSON outputs
 _METRIC_KEYS = ["acc,none", "acc_norm,none", "exact_match,none"]
 
-# Benchmark metadata (kept in sync with evaluate.py / benchmarks.yaml)
-_BENCHMARK_META = {
-    "m_mmlu": {"num_fewshot": 5,  "random_chance": 0.25},
-    "xcopa":  {"num_fewshot": 0,  "random_chance": 0.50},
-}
+_DEFAULT_CONFIG = Path(__file__).parent / "configs" / "benchmarks.yaml"
+
+def _load_benchmark_meta(config_path: Path) -> dict:
+    with open(config_path) as f:
+        benchmarks = yaml.safe_load(f)["benchmarks"]
+    return {
+        task: {"num_fewshot": cfg["num_fewshot"], "random_chance": cfg["random_chance"]}
+        for task, cfg in benchmarks.items()
+    }
 
 
 def _ckpt_to_tokens(name: str) -> float:
@@ -53,7 +58,7 @@ def _ckpt_to_tokens(name: str) -> float:
     return float(m.group(1)) if m else float("inf")
 
 
-def parse_eval_directory(eval_dir: Path) -> pd.DataFrame:
+def parse_eval_directory(eval_dir: Path, benchmark_meta: dict | None = None) -> pd.DataFrame:
     """
     Recursively scan eval_dir for lm-eval JSON result files.
 
@@ -101,7 +106,7 @@ def parse_eval_directory(eval_dir: Path) -> pd.DataFrame:
             logger.warning(f"No accuracy metric found in {jf}")
             continue
 
-        meta = _BENCHMARK_META.get(task, {})
+        meta = (benchmark_meta or {}).get(task, {})
         records.append({
             "checkpoint":    checkpoint,
             "language":      language,
@@ -186,7 +191,8 @@ def main():
         logger.error(f"RankMe CSV does not exist: {rankme_csv}")
         return
 
-    df_eval = parse_eval_directory(eval_dir)
+    benchmark_meta = _load_benchmark_meta(_DEFAULT_CONFIG)
+    df_eval = parse_eval_directory(eval_dir, benchmark_meta)
     if df_eval.empty:
         logger.error("No evaluation results to merge — run evaluate.py first.")
         return
