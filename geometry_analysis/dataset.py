@@ -20,19 +20,18 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def load_streaming_dataset(path, subset, split):
-    """
-    Loads a dataset from HuggingFace in 'streaming' mode.
-    """
-    load_kwargs = dict(split=split, streaming=True)
+def load_hf_dataset(path, subset, split, streaming):
+    load_kwargs = dict(split=split, streaming=streaming)
     if subset:
         load_kwargs["name"] = subset
     return load_dataset(path, **load_kwargs)
 
 
-def sample_and_tokenize_dataset(ds_config, num_sequences, tokenizer, max_seq_len, min_seq_len, seed=42):
+def sample_and_tokenize_dataset(ds_config, num_sequences, tokenizer, max_seq_len, min_seq_len, seed=42, streaming=False):
     """
-    Streams a dataset, tokenizes the text, and filters for sequences that meet length requirements.
+    Loads a dataset, tokenizes the text, and filters for sequences that meet length requirements.
+    When streaming=False (default), downloads the full subset first for proper uniform sampling.
+    When streaming=True, uses a buffer-based shuffle which may oversample the start of the dataset.
     """
     path = ds_config["path"]
     subset = ds_config.get("subset", None)
@@ -42,11 +41,14 @@ def sample_and_tokenize_dataset(ds_config, num_sequences, tokenizer, max_seq_len
     logger.info(
         f"Sampling {num_sequences} valid sequences from '{path}'"
         + (f" subset='{subset}'" if subset else "")
-        + f" (min_len={min_seq_len}, max_len={max_seq_len}, seed={seed})"
+        + f" (min_len={min_seq_len}, max_len={max_seq_len}, seed={seed}, streaming={streaming})"
     )
 
-    dataset = load_streaming_dataset(path, subset, split)
-    dataset = dataset.shuffle(seed=seed, buffer_size=10_000)
+    dataset = load_hf_dataset(path, subset, split, streaming=streaming)
+    if streaming:
+        dataset = dataset.shuffle(seed=seed, buffer_size=10_000)
+    else:
+        dataset = dataset.shuffle(seed=seed)
 
     valid_samples = []
     chunk_size = 1000  # Process in chunks for tokenizer efficiency
@@ -117,6 +119,7 @@ def prepare_dataset_samples(config, pending_ds_names, results_dir, model_name, m
     num_sequences = coll.get("num_sequences", 10000)
     max_seq_len = coll.get("max_sequence_length", 512)
     min_seq_len = coll.get("min_sequence_length", 0)
+    streaming = coll.get("streaming", False)
 
     logger.info(f"Loading tokenizer for '{model_name}' to prepare spans...")
     tokenizer = AutoTokenizer.from_pretrained(
@@ -136,7 +139,7 @@ def prepare_dataset_samples(config, pending_ds_names, results_dir, model_name, m
                 dataset_samples[ds_name] = torch.load(cache_file, weights_only=False)
             else:
                 samples = sample_and_tokenize_dataset(
-                    ds_config, num_sequences, tokenizer, max_seq_len, min_seq_len, seed=seed
+                    ds_config, num_sequences, tokenizer, max_seq_len, min_seq_len, seed=seed, streaming=streaming
                 )
                 torch.save(samples, cache_file)
                 dataset_samples[ds_name] = samples
