@@ -114,6 +114,7 @@ python downstream_evaluation/evaluate.py \
   --checkpoint ${CHECKPOINT} \
   --output-dir /scratch/${REPO_NAME}/results/eval \
   --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml \
+  --batch-size 1 \
   ${LIMIT_ARG}"
 
 echo ">>> Submitting eval job '${JOB_NAME}'"
