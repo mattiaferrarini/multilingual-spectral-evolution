@@ -48,38 +48,21 @@ and **XCOPA** (6 languages, 0-shot) using [lm-evaluation-harness](https://github
 
 Submit **one job per checkpoint**. Each job is independent and resumable after preemption.
 
-### FuxiTranyu-8B (57 checkpoints)
+Use `submit_all.sh` to submit all checkpoints for a model in one command — it reads
+checkpoints from the RankMe CSV, filters out unrecognised entries, and calls
+`submit_eval.sh` once per checkpoint:
 
 ```bash
-for ckpt in 10B 21B 31B 42B 52B 63B 73B 84B 94B 105B 115B 126B 136B 147B \
-            157B 168B 178B 189B 199B 210B 220B 231B 241B 252B 262B 273B 283B \
-            294B 304B 315B 325B 334B 342B 352B 363B 373B 384B 394B 405B 415B \
-            426B 436B 447B 457B 468B 478B 489B 499B 510B 520B 531B 541B 552B \
-            562B 573B 583B 593B; do
-    ./downstream_evaluation/submit_eval.sh $ckpt fuxi
-done
+./downstream_evaluation/submit_all.sh fuxi      # all 57 Fuxi checkpoints
+./downstream_evaluation/submit_all.sh apertus   # all 44 Apertus checkpoints
+./downstream_evaluation/submit_all.sh fuxi 5    # smoke test with limit=5
 ```
 
-### Apertus-8B-2509 (44 checkpoints)
+To submit a single checkpoint manually:
 
 ```bash
-for ckpt in step50000-tokens210B step100000-tokens420B step150000-tokens630B \
-            step200000-tokens840B step250000-tokens1050B step300000-tokens1260B \
-            step350000-tokens1470B step400000-tokens1680B step450000-tokens1890B \
-            step500000-tokens2100B step550000-tokens2310B step600000-tokens2520B \
-            step650000-tokens2730B step700000-tokens2940B step750000-tokens3150B \
-            step800000-tokens3360B step850000-tokens3570B step900000-tokens3780B \
-            step950000-tokens3990B step1000000-tokens4200B step1194000-tokens5014B \
-            step1432000-tokens6014B step1670000-tokens7014B step1678000-tokens7047B \
-            step1700000-tokens7232B step1750000-tokens7652B step1800000-tokens8072B \
-            step1850000-tokens8492B step1900000-tokens8912B step1950000-tokens9332B \
-            step2000000-tokens9752B step2050000-tokens10172B step2100000-tokens10592B \
-            step2150000-tokens11012B step2200000-tokens11432B step2250000-tokens11852B \
-            step2300000-tokens12272B step2350000-tokens12692B step2400000-tokens13112B \
-            step2450000-tokens13532B step2500000-tokens13952B step2550000-tokens14372B \
-            step2600000-tokens14792B step2627139-tokens15T; do
-    ./downstream_evaluation/submit_eval.sh $ckpt apertus
-done
+./downstream_evaluation/submit_eval.sh 531B fuxi
+./downstream_evaluation/submit_eval.sh step2627139-tokens15T apertus
 ```
 
 ### Monitor jobs
