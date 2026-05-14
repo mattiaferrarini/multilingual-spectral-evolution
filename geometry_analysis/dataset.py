@@ -128,7 +128,9 @@ def prepare_dataset_samples(config, pending_ds_names, results_dir, model_name, m
     for ds_config in config["datasets"]:
         ds_name = ds_config["name"]
         if ds_name in pending_ds_names:
-            cache_file = os.path.join(results_dir, f"samples_{ds_name}_{num_sequences}_{max_seq_len}_{seed}.pt")
+            ds_cache_dir = os.path.join(results_dir, ds_config["path"])
+            os.makedirs(ds_cache_dir, exist_ok=True)
+            cache_file = os.path.join(ds_cache_dir, f"samples_{ds_name}_{num_sequences}_{max_seq_len}_{seed}.pt")
             if os.path.exists(cache_file):
                 logger.info(f"⚠️ [CACHE HIT] Loading pre-sampled data for '{ds_name}' from {cache_file}")
                 dataset_samples[ds_name] = torch.load(cache_file, weights_only=False)
