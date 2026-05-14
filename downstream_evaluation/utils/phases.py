@@ -51,13 +51,31 @@ def compute_phases(df_layer: pd.DataFrame, checkpoints_all: list,
     """
     Identify entropy-seeking and compression-seeking phases for every language.
 
-    Returns df_phases with onset/duration columns per language.
+    Returns df_phases with onset/duration columns and RankMe magnitude metrics:
+      rankme_first        — RankMe at the first checkpoint (initial richness)
+      rankme_last         — RankMe at the last checkpoint (final richness)
+      rankme_decline_rate — (rankme_first - rankme_last) / total_duration_B
+    First and last checkpoints are taken from checkpoints_all, so this works
+    for any model without hardcoding checkpoint names.
     """
+    tc = np.array(token_counts, dtype=float)
+    total_duration_b = float(tc[-1] - tc[0]) if len(tc) >= 2 else float("nan")
+
     records = []
     for lang in sorted(df_layer["dataset"].unique()):
         sub    = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
-        rv     = [sub.loc[c, "rankme"] if c in sub.index else np.nan for c in checkpoints_all]
+        rv     = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
+                           for c in checkpoints_all], dtype=float)
         phases = _identify_phases_single(rv, token_counts)
+
+        # First and last non-NaN RankMe values along the trajectory
+        rankme_first = float(rv[0])   if not np.isnan(rv[0])  else float("nan")
+        rankme_last  = float(rv[-1])  if not np.isnan(rv[-1]) else float("nan")
+        if not np.isnan(rankme_first) and not np.isnan(rankme_last) and total_duration_b > 0:
+            rankme_decline_rate = (rankme_first - rankme_last) / total_duration_b
+        else:
+            rankme_decline_rate = float("nan")
+
         records.append({
             "language": lang,
             "phases":   phases,
@@ -66,5 +84,8 @@ def compute_phases(df_layer: pd.DataFrame, checkpoints_all: list,
             "compression_duration_tokens": _phase_duration(phases, "compression_seeking"),
             "entropy_onset_tokens":        _phase_onset(phases,   "entropy_seeking"),
             "entropy_duration_tokens":     _phase_duration(phases, "entropy_seeking"),
+            "rankme_first":        rankme_first,
+            "rankme_last":         rankme_last,
+            "rankme_decline_rate": rankme_decline_rate,
         })
     return pd.DataFrame(records)

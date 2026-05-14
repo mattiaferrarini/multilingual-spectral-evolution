@@ -17,6 +17,12 @@ _MODEL_CONFIGS = {
         "layer":      "layer_29",
         "label":      "FuxiTranyu-8B",
     },
+    "fuxi_intermediate": {
+        "rankme_csv": Path("../results/fuxi.csv"),
+        "merged_csv": Path("../results/fuxi_intermediate_merged.csv"),
+        "layer":      "layer_29",
+        "label":      "FuxiTranyu-8B (intermediate)",
+    },
     "apertus": {
         "rankme_csv": Path("../results/apertus.csv"),
         "merged_csv": Path("../results/apertus_merged.csv"),
