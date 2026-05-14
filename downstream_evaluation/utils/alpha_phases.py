@@ -53,20 +53,34 @@ def compute_alpha_phases(df_layer: pd.DataFrame, checkpoints_all: list,
     """
     Identify regularization-increasing and regularization-decreasing phases per language.
 
-    Returns df_alpha_phases with trough position, onset, and duration columns.
+    Returns df_alpha_phases with trough position, onset, duration, and rate columns.
+    reg_increasing_rate: drop in α per billion tokens during the regularization-increasing phase.
     """
     records = []
     for lang in sorted(df_layer["dataset"].unique()):
         sub    = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
         av     = [sub.loc[c, "alpha_req"] if c in sub.index else np.nan
                   for c in checkpoints_all]
+        av_arr = np.array(av, dtype=float)
         phases = _identify_alpha_phases_single(av, token_counts)
+
+        trough_idx   = phases["trough_idx"]
+        duration_b   = _phase_duration(phases, "regularization_increasing")
+        alpha_first  = av_arr[0] if not np.isnan(av_arr[0]) else float("nan")
+        alpha_trough = av_arr[trough_idx] if not np.isnan(av_arr[trough_idx]) else float("nan")
+        reg_increasing_rate = (
+            (alpha_first - alpha_trough) / duration_b
+            if duration_b > 0 and not np.isnan(alpha_first) and not np.isnan(alpha_trough)
+            else float("nan")
+        )
+
         records.append({
             "language": lang,
             "phases":   phases,
             "trough_tokens":                  phases["trough_tokens"],
             "reg_increasing_onset_tokens":    _phase_onset(phases,    "regularization_increasing"),
             "reg_increasing_duration_tokens": _phase_duration(phases, "regularization_increasing"),
+            "reg_increasing_rate":            reg_increasing_rate,
             "reg_decreasing_onset_tokens":    _phase_onset(phases,    "regularization_decreasing"),
             "reg_decreasing_duration_tokens": _phase_duration(phases, "regularization_decreasing"),
         })

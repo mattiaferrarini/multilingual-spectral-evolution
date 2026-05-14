@@ -34,7 +34,7 @@ def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
     Compute Spearman + Pearson correlations: AlphaReQ phase geometry → downstream accuracy.
 
     Predictors: regularization-decreasing onset (trough position) and
-    regularization-increasing duration (how long α falls before the trough).
+    rate of α decline (drop in α per billion tokens during the regularization-increasing phase).
     Returns df_alpha_correlations.
     """
     records = []
@@ -44,11 +44,11 @@ def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
             continue
         merged = df_t.merge(
             df_alpha_phases[["language", "reg_decreasing_onset_tokens",
-                              "reg_increasing_duration_tokens"]],
+                              "reg_increasing_rate"]],
             on="language", how="inner")
         for x_col, x_label in [
-            ("reg_decreasing_onset_tokens",    "Reg.-decreasing onset (B)"),
-            ("reg_increasing_duration_tokens", "Reg.-increasing duration (B)"),
+            ("reg_decreasing_onset_tokens", "Reg.-decreasing onset (B)"),
+            ("reg_increasing_rate",         "Rate of α decline (α/B)"),
         ]:
             for y_col, y_label in [
                 ("grokking_tokens", "Grokking onset (B)"),
