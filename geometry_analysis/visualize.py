@@ -34,6 +34,9 @@ import seaborn as sns
 
 sns.set_theme(style="whitegrid", font_scale=1.1)
 
+_CURVE_TICKS = [10, 100, 200, 300, 400, 500, 600]
+_MAIN_X = 600
+
 METRIC_LABELS = {
     "rankme": "RankMe",
     "pr": "Participation Ratio",
@@ -79,8 +82,40 @@ def layer_num(layer_name):
 # ── Plot helpers ──────────────────────────────────────────────────────────────
 
 def _language_colors(languages):
-    palette = sns.color_palette("tab10", n_colors=max(len(languages), 1))
+    n = max(len(languages), 1)
+    if n <= 10:
+        palette = sns.color_palette("tab10", n_colors=n)
+    elif n <= 20:
+        palette = sns.color_palette("tab20", n_colors=n)
+    else:
+        palette = sns.color_palette("husl", n_colors=n)
     return {lang: palette[i] for i, lang in enumerate(languages)}
+
+
+def _minmax(ys):
+    arr = np.array(ys, dtype=float)
+    lo, hi = np.nanmin(arr), np.nanmax(arr)
+    if hi == lo:
+        return arr.tolist()
+    return ((arr - lo) / (hi - lo)).tolist()
+
+
+def _smooth_on_uniform_grid(xs, ys, sigma):
+    from scipy.ndimage import gaussian_filter1d
+    xs_arr = np.array(xs, dtype=float)
+    ys_arr = np.array(ys, dtype=float)
+    nan_mask = np.isnan(ys_arr)
+    if nan_mask.all() or sigma <= 0:
+        return ys
+    valid_xs = xs_arr[~nan_mask]
+    valid_ys = ys_arr[~nan_mask]
+    n = len(xs_arr)
+    x_uniform = np.linspace(xs_arr[0], xs_arr[-1], n)
+    y_uniform = np.interp(x_uniform, valid_xs, valid_ys)
+    y_smoothed_uniform = gaussian_filter1d(y_uniform, sigma=sigma)
+    y_smoothed = np.interp(xs_arr, x_uniform, y_smoothed_uniform)
+    y_smoothed[nan_mask] = np.nan
+    return y_smoothed.tolist()
 
 
 def _checkpoint_colors(checkpoints):
@@ -97,10 +132,23 @@ def _save(fig, path):
 
 # ── Plot type 1: training curves ─────────────────────────────────────────────
 
-def plot_training_curves(df, metrics, languages, layers, aggregations, output_dir, model_label, y_ranges=None):
+def plot_training_curves(df, metrics, languages, layers, aggregations, output_dir, model_label,
+                         y_ranges=None, smoothing=0.0, normalize="none"):
+    from collections import Counter
     checkpoints = sort_checkpoints(df["checkpoint"].unique())
-    x = range(len(checkpoints))
     lang_colors = _language_colors(languages)
+
+    has_main = any(str(c).lower() == "main" for c in checkpoints)
+    numeric_ckpts = [c for c in checkpoints if str(c).lower() != "main"]
+    max_numeric = max((_ckpt_key(c) for c in numeric_ckpts), default=0)
+
+    def ckpt_x(c):
+        return _MAIN_X if str(c).lower() == "main" else _ckpt_key(c)
+
+    max_x = max(max_numeric, _MAIN_X if has_main else 0)
+    tick_positions = [t for t in _CURVE_TICKS if t <= max_x + 1]
+    tick_labels = [str(t) for t in tick_positions]
+    xs_common = [ckpt_x(c) for c in checkpoints]
 
     for metric in metrics:
         metric_label = METRIC_LABELS.get(metric, metric)
@@ -111,28 +159,127 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                 if subset.empty:
                     continue
 
-                fig, ax = plt.subplots(figsize=(10, 5))
-                for lang in languages:
-                    vals = (
-                        subset[subset["dataset"] == lang]
-                        .set_index("checkpoint")
-                        .reindex(checkpoints)[metric]
-                    )
-                    ax.plot(x, vals, marker="o", label=lang,
-                            color=lang_colors[lang], linewidth=2, markersize=5)
+                fig, ax = plt.subplots(figsize=(12, 6))
+                endpoints = []
+                min_data_x = float("inf")
+                smoothed_matrix = []
+                raw_ys_per_lang = {}
 
-                ax.set_xticks(list(x))
-                ax.set_xticklabels(checkpoints, rotation=45, ha="right", fontsize=9)
-                ax.set_xlabel("Checkpoint (tokens seen)")
-                ax.set_ylabel(metric_label)
+                for lang in languages:
+                    row = subset[subset["dataset"] == lang].set_index("checkpoint")
+                    ys = [row.loc[c, metric] if c in row.index else np.nan for c in checkpoints]
+                    raw_ys_per_lang[lang] = ys
+                    valid_xs = [x for x, y in zip(xs_common, ys) if not np.isnan(y)]
+                    if valid_xs:
+                        min_data_x = min(min_data_x, valid_xs[0])
+                    if smoothing > 0:
+                        smoothed_matrix.append(_smooth_on_uniform_grid(xs_common, ys, smoothing))
+
+                left_x = min_data_x if min_data_x < float("inf") else tick_positions[0]
+
+                # change-point detection (only when smoothing is active)
+                per_lang_cps = []
+                if smoothing > 0 and smoothed_matrix:
+                    xs_arr = np.array(xs_common)
+                    for smoothed_ys in smoothed_matrix:
+                        s = np.array(smoothed_ys, dtype=float)
+                        valid_idx = [i for i, v in enumerate(s) if not np.isnan(v)]
+                        if len(valid_idx) >= 2:
+                            min_i = min(valid_idx, key=lambda i: s[i])
+                            max_i = max(valid_idx, key=lambda i: s[i])
+
+                            def _deriv_jump(idx):
+                                lefts = [j for j in valid_idx if j < idx]
+                                rights = [j for j in valid_idx if j > idx]
+                                if not lefts or not rights:
+                                    return 0.0
+                                prev_i, next_i = lefts[-1], rights[0]
+                                d_l = (s[idx] - s[prev_i]) / (xs_arr[idx] - xs_arr[prev_i])
+                                d_r = (s[next_i] - s[idx]) / (xs_arr[next_i] - xs_arr[idx])
+                                return abs(d_r - d_l)
+
+                            ext_i = min_i if _deriv_jump(min_i) >= _deriv_jump(max_i) else max_i
+                            lefts = [j for j in valid_idx if j < ext_i]
+                            rights = [j for j in valid_idx if j > ext_i]
+                            if lefts and rights:
+                                prev_i, next_i = lefts[-1], rights[0]
+                                d_left = (s[ext_i] - s[prev_i]) / (xs_arr[ext_i] - xs_arr[prev_i])
+                                d_right = (s[next_i] - s[ext_i]) / (xs_arr[next_i] - xs_arr[ext_i])
+                                denom = abs(d_left) + abs(d_right)
+                                frac = abs(d_left) / denom if denom > 0 else 0.5
+                                x_cross = xs_arr[ext_i] + frac * (xs_arr[next_i] - xs_arr[ext_i])
+                                per_lang_cps.append(min(xs_common, key=lambda x: abs(x - x_cross)))
+                            else:
+                                per_lang_cps.append(xs_arr[ext_i])
+
+                mode_cp = Counter(per_lang_cps).most_common(1)[0][0] if per_lang_cps else None
+
+                def _apply_normalize(ys, xs):
+                    if normalize == "global":
+                        return _minmax(ys)
+                    if normalize == "per-segment" and mode_cp is not None:
+                        arr = np.array(ys, dtype=float)
+                        cp_idx = xs.index(mode_cp)
+                        pre, post = arr[:cp_idx + 1].copy(), arr[cp_idx:].copy()
+                        result = np.full_like(arr, np.nan)
+                        result[:cp_idx + 1] = _minmax(pre.tolist())
+                        result[cp_idx:] = _minmax(post.tolist())
+                        return result.tolist()
+                    return ys
+
+                for lang in languages:
+                    ys = raw_ys_per_lang[lang]
+                    plot_ys = _apply_normalize(ys, xs_common)
+                    ax.plot(xs_common, plot_ys, color=lang_colors[lang], linewidth=1.5)
+                    valid = [(x, y) for x, y in zip(xs_common, plot_ys) if not np.isnan(y)]
+                    if valid:
+                        endpoints.append((valid[-1][0], valid[-1][1], lang, lang_colors[lang]))
+
+                # shaded regions around change point
+                if mode_cp is not None:
+                    ax.axvspan(left_x, mode_cp, color="steelblue", alpha=0.15, zorder=0)
+                    ax.axvspan(mode_cp, tick_positions[-1], color="tomato", alpha=0.15, zorder=0)
+                    ax.axvline(mode_cp, color="black", linestyle="--", linewidth=1.5, alpha=0.7,
+                               label=f"Change point (mode): {mode_cp:.0f}B")
+                    ax.legend(fontsize=11, loc="upper right")
+
+                # right-side endpoint labels
+                endpoints.sort(key=lambda t: t[1])
+                label_ys = [t[1] for t in endpoints]
+                y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+                min_gap = y_range * 0.05
+                for _ in range(50):
+                    changed = False
+                    for i in range(1, len(label_ys)):
+                        if label_ys[i] - label_ys[i - 1] < min_gap:
+                            mid = (label_ys[i] + label_ys[i - 1]) / 2
+                            label_ys[i - 1] = mid - min_gap / 2
+                            label_ys[i] = mid + min_gap / 2
+                            changed = True
+                    if not changed:
+                        break
+
+                y_min, y_max = ax.get_ylim()
+                for (lx, ly, lang, color), label_y in zip(endpoints, label_ys):
+                    label_y_frac = (label_y - y_min) / (y_max - y_min)
+                    ax.annotate(lang, xy=(lx, ly), xycoords="data",
+                                xytext=(1.04, label_y_frac), textcoords="axes fraction",
+                                color=color, fontsize=12, va="center", clip_on=False,
+                                arrowprops=dict(arrowstyle="-", color=color,
+                                                lw=1, alpha=0.5, relpos=(0, 0.5)))
+
+                ax.set_xlim(left=left_x, right=tick_positions[-1])
+                ax.set_xticks(tick_positions)
+                ax.set_xticklabels(tick_labels, rotation=45, fontsize=12)
+                ax.set_xlabel("Billion of tokens", fontsize=13)
+                ax.set_ylabel(metric_label, fontsize=13)
                 if y_ranges and (metric, agg) in y_ranges:
                     ax.set_ylim(y_ranges[(metric, agg)])
-                title = f"{metric_label} over training\n{layer} | agg={agg}"
+                title = f"{metric_label} over training — {layer} | agg={agg}"
                 if model_label:
                     title = f"[{model_label}] " + title
-                ax.set_title(title)
-                ax.legend(title="Language", bbox_to_anchor=(1.02, 1), loc="upper left")
-                ax.grid(True, alpha=0.3)
+                ax.set_title(title, fontsize=14)
+                ax.grid(True, linestyle="--", alpha=0.7)
                 plt.tight_layout()
 
                 fname = f"training_curve_{metric}_{layer}_{agg}.png"
@@ -350,6 +497,16 @@ def parse_args():
              "Makes it easy to compare plots for different languages or layers directly.",
     )
     p.add_argument(
+        "--smoothing", type=float, default=0.0, metavar="SIGMA",
+        help="Gaussian smoothing sigma (in data points) for training curves. "
+             "Also enables change-point detection and shaded regions (default: 0 = off).",
+    )
+    p.add_argument(
+        "--normalize", choices=["none", "global", "per-segment"], default="none",
+        help="Normalization for training curves: none (default), global min-max per curve, "
+             "or per-segment min-max around the detected change point.",
+    )
+    p.add_argument(
         "--training-curves-gif-duration", type=float, default=None, metavar="SECONDS",
         help="If set, produce an animated GIF for each (metric, aggregation) from the "
              "training curve PNGs, animating through layers. Total duration in seconds "
@@ -378,6 +535,8 @@ def main():
     print(f"Aggregations: {aggregations}")
     print(f"Plot types:   {args.plot_types}")
     print(f"Shared y-axis: {args.shared_y_axis}")
+    print(f"Smoothing:    {args.smoothing}")
+    print(f"Normalize:    {args.normalize}")
     print(f"Output dir:   {args.output_dir}/\n")
 
     # Compute global y-axis range per (metric, aggregation) pair across all selected data.
@@ -415,7 +574,7 @@ def main():
 
     if "training_curves" in args.plot_types:
         print("[1/3] Training curves...")
-        plot_training_curves(df, **kw)
+        plot_training_curves(df, **kw, smoothing=args.smoothing, normalize=args.normalize)
 
     if "layer_profiles" in args.plot_types:
         print("\n[2/3] Layer profiles...")
