@@ -340,15 +340,18 @@ def plot_alpha_rate_scatter(df_grokking, df_alpha_phases, model_label, plots_dir
         title_suffix = "Insufficient data"
         if len(valid) >= 2:
             try:
-                slope, intercept, r, p, _ = stats.linregress(
+                slope, intercept, pe_r, pe_p, _ = stats.linregress(
+                    valid["reg_increasing_rate"], valid["grokking_tokens"])
+                sp_r, sp_p = stats.spearmanr(
                     valid["reg_increasing_rate"], valid["grokking_tokens"])
                 x_line = np.linspace(valid["reg_increasing_rate"].min(),
                                      valid["reg_increasing_rate"].max(), 100)
                 ax.plot(x_line, slope * x_line + intercept,
                         color="crimson", alpha=0.6, lw=1.5, ls="--",
-                        label=f"r = {r:.2f}, p = {p:.3f}")
+                        label=f"Pearson r = {pe_r:.2f}, p = {pe_p:.3f}")
                 ax.legend(fontsize=9)
-                title_suffix = f"Pearson r={r:.2f}, p={p:.3f}  (n={len(valid)})"
+                title_suffix = (f"Spearman r={sp_r:.2f}, p={sp_p:.3f} | "
+                                f"Pearson r={pe_r:.2f}, p={pe_p:.3f}  (n={len(valid)})")
             except ValueError:
                 title_suffix = f"n={len(valid)}"
 
@@ -394,15 +397,18 @@ def plot_rankme_last_scatter(df_grokking, df_phases, model_label, plots_dir) -> 
         title_suffix = "Insufficient data"
         if len(valid) >= 2:
             try:
-                slope, intercept, r, p, _ = stats.linregress(
+                slope, intercept, pe_r, pe_p, _ = stats.linregress(
+                    valid["rankme_last"], valid["peak_accuracy"])
+                sp_r, sp_p = stats.spearmanr(
                     valid["rankme_last"], valid["peak_accuracy"])
                 x_line = np.linspace(valid["rankme_last"].min(),
                                      valid["rankme_last"].max(), 100)
                 ax.plot(x_line, slope * x_line + intercept,
                         color="crimson", alpha=0.6, lw=1.5, ls="--",
-                        label=f"r = {r:.2f}, p = {p:.3f}")
+                        label=f"Pearson r = {pe_r:.2f}, p = {pe_p:.3f}")
                 ax.legend(fontsize=9)
-                title_suffix = f"Pearson r={r:.2f}, p={p:.3f}  (n={len(valid)})"
+                title_suffix = (f"Spearman r={sp_r:.2f}, p={sp_p:.3f} | "
+                                f"Pearson r={pe_r:.2f}, p={pe_p:.3f}  (n={len(valid)})")
             except ValueError:
                 title_suffix = f"n={len(valid)}"
 
