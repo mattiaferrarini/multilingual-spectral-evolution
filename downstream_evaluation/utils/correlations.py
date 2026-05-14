@@ -28,6 +28,41 @@ def _correlate(x, y, min_pairs: int = 4) -> dict | None:
             "pearson_r":  round(float(pe_r), 4), "pearson_p":  round(float(pe_p), 4)}
 
 
+def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
+                                      df_alpha_phases: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute Spearman + Pearson correlations: AlphaReQ phase geometry → downstream accuracy.
+
+    Predictors: regularization-decreasing onset (trough position) and
+    regularization-increasing duration (how long α falls before the trough).
+    Returns df_alpha_correlations.
+    """
+    records = []
+    for task in ["m_mmlu", "xcopa"]:
+        df_t = df_grokking[df_grokking["task"] == task]
+        if df_t.empty:
+            continue
+        merged = df_t.merge(
+            df_alpha_phases[["language", "reg_decreasing_onset_tokens",
+                              "reg_increasing_duration_tokens"]],
+            on="language", how="inner")
+        for x_col, x_label in [
+            ("reg_decreasing_onset_tokens",    "Reg.-decreasing onset (B)"),
+            ("reg_increasing_duration_tokens", "Reg.-increasing duration (B)"),
+        ]:
+            for y_col, y_label in [
+                ("grokking_tokens", "Grokking onset (B)"),
+                ("peak_accuracy",   "Peak accuracy"),
+            ]:
+                corr = _correlate(merged[x_col], merged[y_col])
+                row  = {"task": task, "predictor (x)": x_label, "outcome (y)": y_label}
+                row.update(corr if corr else {"n_languages": 0, "spearman_r": None,
+                                               "spearman_p": None, "pearson_r": None,
+                                               "pearson_p": None})
+                records.append(row)
+    return pd.DataFrame(records)
+
+
 def compute_correlations_table(df_grokking: pd.DataFrame,
                                 df_phases: pd.DataFrame) -> pd.DataFrame:
     """
