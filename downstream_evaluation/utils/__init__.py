@@ -18,5 +18,6 @@ from .alpha_phases import compute_alpha_phases
 from .grokking import compute_grokking
 from .correlations import compute_correlations_table, compute_alpha_correlations_table
 from .plots import (plot_rankme_phases, plot_overlay, plot_correlation_scatter,
+                    plot_rankme_last_scatter,
                     plot_alpha_phases, plot_alpha_overlay, plot_alpha_correlation_scatter,
                     PHASE_COLORS, PHASE_LABELS, ALPHA_PHASE_COLORS, ALPHA_PHASE_LABELS)

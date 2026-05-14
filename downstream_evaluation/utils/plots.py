@@ -303,6 +303,59 @@ def plot_alpha_correlation_scatter(df_grokking, df_alpha_phases, model_label, pl
     print(f"Saved: {path}")
 
 
+def plot_rankme_last_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
+    """Scatter: RankMe at last checkpoint vs peak accuracy, one panel per task."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
+        ax   = axes[ax_idx]
+        df_t = df_grokking[df_grokking["task"] == task] if not df_grokking.empty else pd.DataFrame()
+
+        if df_t.empty:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=12)
+            ax.set_title(task.upper(), fontsize=11)
+            continue
+
+        merged = df_t.merge(df_phases[["language", "rankme_last"]], on="language", how="inner")
+        valid  = merged.dropna(subset=["rankme_last", "peak_accuracy"])
+
+        ax.scatter(valid["rankme_last"], valid["peak_accuracy"],
+                   s=90, zorder=3, color="steelblue", edgecolors="k", lw=0.5)
+        for _, row in valid.iterrows():
+            ax.annotate(row["language"],
+                        (row["rankme_last"], row["peak_accuracy"]),
+                        fontsize=8, xytext=(5, 3), textcoords="offset points")
+
+        title_suffix = "Insufficient data"
+        if len(valid) >= 2:
+            try:
+                slope, intercept, r, p, _ = stats.linregress(
+                    valid["rankme_last"], valid["peak_accuracy"])
+                x_line = np.linspace(valid["rankme_last"].min(),
+                                     valid["rankme_last"].max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color="crimson", alpha=0.6, lw=1.5, ls="--",
+                        label=f"r = {r:.2f}, p = {p:.3f}")
+                ax.legend(fontsize=9)
+                title_suffix = f"Pearson r={r:.2f}, p={p:.3f}  (n={len(valid)})"
+            except ValueError:
+                title_suffix = f"n={len(valid)}"
+
+        ax.set_xlabel("RankMe at last checkpoint", fontsize=10)
+        ax.set_ylabel("Peak downstream accuracy", fontsize=10)
+        ax.set_title(f"{task.upper()}\n{title_suffix}", fontsize=10)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"[{model_label}] RankMe at last checkpoint → downstream accuracy",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    path = Path(plots_dir) / "rankme_last_scatter.png"
+    plt.savefig(path)
+    plt.show()
+    print(f"Saved: {path}")
+
+
 def plot_correlation_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
     """Scatter: compression onset vs peak accuracy, one panel per task."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
