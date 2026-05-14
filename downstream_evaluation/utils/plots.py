@@ -303,6 +303,70 @@ def plot_alpha_correlation_scatter(df_grokking, df_alpha_phases, model_label, pl
     print(f"Saved: {path}")
 
 
+def plot_alpha_rate_scatter(df_grokking, df_alpha_phases, model_label, plots_dir) -> None:
+    """Scatter: rate of α decline vs grokking onset, one panel per task."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
+        ax   = axes[ax_idx]
+        df_t = df_grokking[df_grokking["task"] == task] if not df_grokking.empty else pd.DataFrame()
+
+        if df_t.empty:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=12)
+            ax.set_title(task.upper(), fontsize=11)
+            continue
+
+        merged = df_t.merge(df_alpha_phases[["language", "reg_increasing_rate"]],
+                             on="language", how="inner")
+        valid  = merged.dropna(subset=["reg_increasing_rate", "grokking_tokens"])
+
+        if valid.empty:
+            ax.text(0.5, 0.5, "No grokking detected", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=11, color="gray")
+            ax.set_title(f"{task.upper()}\n(no valid pairs)", fontsize=10)
+            ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
+            ax.set_ylabel("Grokking onset (B)", fontsize=10)
+            ax.grid(True, alpha=0.3)
+            continue
+
+        ax.scatter(valid["reg_increasing_rate"], valid["grokking_tokens"],
+                   s=90, zorder=3, color="darkorchid", edgecolors="k", lw=0.5)
+        for _, row in valid.iterrows():
+            ax.annotate(row["language"],
+                        (row["reg_increasing_rate"], row["grokking_tokens"]),
+                        fontsize=8, xytext=(5, 3), textcoords="offset points")
+
+        title_suffix = "Insufficient data"
+        if len(valid) >= 2:
+            try:
+                slope, intercept, r, p, _ = stats.linregress(
+                    valid["reg_increasing_rate"], valid["grokking_tokens"])
+                x_line = np.linspace(valid["reg_increasing_rate"].min(),
+                                     valid["reg_increasing_rate"].max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color="crimson", alpha=0.6, lw=1.5, ls="--",
+                        label=f"r = {r:.2f}, p = {p:.3f}")
+                ax.legend(fontsize=9)
+                title_suffix = f"Pearson r={r:.2f}, p={p:.3f}  (n={len(valid)})"
+            except ValueError:
+                title_suffix = f"n={len(valid)}"
+
+        ax.yaxis.set_major_formatter(FuncFormatter(format_tokens))
+        ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
+        ax.set_ylabel("Grokking onset (B)", fontsize=10)
+        ax.set_title(f"{task.upper()}\n{title_suffix}", fontsize=10)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle(f"[{model_label}] Rate of α decline → grokking onset",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    path = Path(plots_dir) / "alpha_rate_scatter.png"
+    plt.savefig(path)
+    plt.show()
+    print(f"Saved: {path}")
+
+
 def plot_rankme_last_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
     """Scatter: RankMe at last checkpoint vs peak accuracy, one panel per task."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))

@@ -20,4 +20,5 @@ from .correlations import compute_correlations_table, compute_alpha_correlations
 from .plots import (plot_rankme_phases, plot_overlay, plot_correlation_scatter,
                     plot_rankme_last_scatter,
                     plot_alpha_phases, plot_alpha_overlay, plot_alpha_correlation_scatter,
+                    plot_alpha_rate_scatter,
                     PHASE_COLORS, PHASE_LABELS, ALPHA_PHASE_COLORS, ALPHA_PHASE_LABELS)
