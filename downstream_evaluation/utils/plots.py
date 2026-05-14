@@ -26,7 +26,7 @@ from .checkpoints import apply_token_formatter, ckpt_to_tokens, format_tokens
 PHASE_COLORS = {"entropy_seeking": "green", "compression_seeking": "darkorange"}
 PHASE_LABELS = {"entropy_seeking": "Entropy-seeking", "compression_seeking": "Compression-seeking"}
 
-ALPHA_PHASE_COLORS = {"regularization_increasing": "royalblue", "regularization_decreasing": "mediumpurple"}
+ALPHA_PHASE_COLORS = {"regularization_increasing": "dodgerblue", "regularization_decreasing": "darkorchid"}
 ALPHA_PHASE_LABELS = {"regularization_increasing": "Reg.-increasing (α↓)", "regularization_decreasing": "Reg.-decreasing (α↑)"}
 
 
@@ -168,8 +168,8 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
     for idx in range(len(langs_sorted), nrows * ncols):
         axes[idx // ncols][idx % ncols].set_visible(False)
 
-    blue_patch   = mpatches.Patch(color="royalblue",    alpha=0.5, label="Reg.-increasing (α↓)")
-    purple_patch = mpatches.Patch(color="mediumpurple", alpha=0.5, label="Reg.-decreasing (α↑)")
+    blue_patch   = mpatches.Patch(color="dodgerblue",  alpha=0.5, label="Reg.-increasing (α↓)")
+    purple_patch = mpatches.Patch(color="darkorchid",  alpha=0.5, label="Reg.-decreasing (α↑)")
     fig.legend(handles=[blue_patch, purple_patch], loc="lower right", fontsize=9)
     fig.suptitle(f"[{model_label}] AlphaReQ training phases — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
