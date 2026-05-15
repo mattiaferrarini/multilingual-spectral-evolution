@@ -1,0 +1,24 @@
+models:
+  - swiss-ai/Apertus-8B-Instruct-2509
+  - TJUNLP/FuxiTranyu-8B-DPO
+
+data_path: /kaggle/input/eclektic/eclektic_main.jsonl
+
+# Number of unique questions to evaluate (each appears in N languages). Omit or set to null for all.
+max_questions: null
+
+output_dir: results/eclektic
+
+temperature: 0.7
+n_generations: 1  # set > 1 to estimate std across independent samples
+
+languages:
+  de: German
+  en: English
+  es: Spanish
+  fr: French
+  hi: Hindi
+  id: Indonesian
+  it: Italian
+  ja: Japanese
+  zh: Chinese
