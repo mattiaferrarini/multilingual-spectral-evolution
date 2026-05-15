@@ -45,10 +45,12 @@ def sample_and_tokenize_dataset(ds_config, num_sequences, tokenizer, max_seq_len
     )
 
     dataset = load_hf_dataset(path, subset, split, streaming=streaming)
+    logger.info("Shuffling dataset...")
     if streaming:
         dataset = dataset.shuffle(seed=seed, buffer_size=10_000)
     else:
         dataset = dataset.shuffle(seed=seed)
+    logger.info("Shuffle complete.")
 
     valid_samples = []
     chunk_size = 1000  # Process in chunks for tokenizer efficiency
