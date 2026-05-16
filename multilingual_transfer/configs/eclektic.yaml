@@ -2,7 +2,7 @@ models:
   - swiss-ai/Apertus-8B-Instruct-2509
   - TJUNLP/FuxiTranyu-8B-DPO
 
-data_path: /kaggle/input/eclektic/eclektic_main.jsonl
+data_path: multilingual_transfer/datasets/eclektic_main.jsonl
 
 # Number of unique questions to evaluate (each appears in N languages). Omit or set to null for all.
 max_questions: null
