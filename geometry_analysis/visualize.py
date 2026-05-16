@@ -20,6 +20,7 @@ Usage examples:
 """
 
 import argparse
+import math
 import os
 import re
 
@@ -33,9 +34,6 @@ import pandas as pd
 import seaborn as sns
 
 sns.set_theme(style="whitegrid", font_scale=1.1)
-
-_CURVE_TICKS = [10, 100, 200, 300, 400, 500, 600]
-_MAIN_X = 600
 
 METRIC_LABELS = {
     "rankme": "RankMe",
@@ -54,6 +52,34 @@ METRIC_LABELS = {
 
 
 # ── Checkpoint ordering ───────────────────────────────────────────────────────
+
+def _auto_ticks(lo, hi, n_target=7):
+    """Generate ~n_target nice round tick positions spanning [lo, hi]."""
+    if hi <= lo:
+        return [round(lo)]
+    span = hi - lo
+    raw_step = span / max(n_target - 1, 1)
+    mag = 10 ** math.floor(math.log10(raw_step))
+    step = mag
+    for factor in [1, 2, 2.5, 5, 10]:
+        step = mag * factor
+        if span / step <= n_target + 1:
+            break
+    start = math.ceil(lo / step) * step
+    ticks, t = [], start
+    while t <= hi + step * 1e-9:
+        ticks.append(round(t))
+        t += step
+    return ticks
+
+
+def _tick_label(val):
+    """Format a billion-token value: ≥1000B shown as T (e.g. 1000→'1T', 1500→'1.5T')."""
+    if val >= 1000:
+        t = val / 1000
+        return f"{int(t)}T" if t == int(t) else f"{t:.1f}T"
+    return str(int(val))
+
 
 def _ckpt_key(name):
     if str(name).lower() == "main":
@@ -140,14 +166,17 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
 
     has_main = any(str(c).lower() == "main" for c in checkpoints)
     numeric_ckpts = [c for c in checkpoints if str(c).lower() != "main"]
-    max_numeric = max((_ckpt_key(c) for c in numeric_ckpts), default=0)
+    numeric_xs = [_ckpt_key(c) for c in numeric_ckpts]
+    min_numeric = min(numeric_xs, default=0)
+    max_numeric = max(numeric_xs, default=0)
+    main_x = max_numeric  # place "main" at the rightmost position
 
     def ckpt_x(c):
-        return _MAIN_X if str(c).lower() == "main" else _ckpt_key(c)
+        return main_x if str(c).lower() == "main" else _ckpt_key(c)
 
-    max_x = max(max_numeric, _MAIN_X if has_main else 0)
-    tick_positions = [t for t in _CURVE_TICKS if t <= max_x + 1]
-    tick_labels = [str(t) for t in tick_positions]
+    max_x = max_numeric
+    tick_positions = _auto_ticks(min_numeric, max_x)
+    tick_labels = [_tick_label(t) for t in tick_positions]
     xs_common = [ckpt_x(c) for c in checkpoints]
 
     for metric in metrics:
@@ -238,7 +267,7 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                 # shaded regions around change point
                 if mode_cp is not None:
                     ax.axvspan(left_x, mode_cp, color="steelblue", alpha=0.15, zorder=0)
-                    ax.axvspan(mode_cp, tick_positions[-1], color="tomato", alpha=0.15, zorder=0)
+                    ax.axvspan(mode_cp, max_x, color="tomato", alpha=0.15, zorder=0)
                     ax.axvline(mode_cp, color="black", linestyle="--", linewidth=1.5, alpha=0.7,
                                label=f"Change point (mode): {mode_cp:.0f}B")
                     ax.legend(fontsize=11, loc="upper right")
@@ -268,7 +297,7 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                                 arrowprops=dict(arrowstyle="-", color=color,
                                                 lw=1, alpha=0.5, relpos=(0, 0.5)))
 
-                ax.set_xlim(left=left_x, right=tick_positions[-1])
+                ax.set_xlim(left=left_x, right=max_x)
                 ax.set_xticks(tick_positions)
                 ax.set_xticklabels(tick_labels, rotation=45, fontsize=12)
                 ax.set_xlabel("Billion of tokens", fontsize=13)
