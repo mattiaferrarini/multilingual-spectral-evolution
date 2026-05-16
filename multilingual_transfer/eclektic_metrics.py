@@ -12,10 +12,14 @@ See https://arxiv.org/abs/2502.21228 for further details.
 
 import os
 import glob
+import logging
 import argparse
 import yaml
 import pandas as pd
 import numpy as np
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def _compute_metrics(data: pd.DataFrame) -> dict:
@@ -65,13 +69,10 @@ def compute_model_metrics(judgments_path: str) -> dict:
     transfer_score = float(np.mean(transfer_scores))
     transfer_std = float(np.std(transfer_scores, ddof=1)) if n_generations > 1 else None
 
-    print(f"\nResults for {model_name}:")
     if overall_std is not None:
-        print(f"  Overall score:   {overall_score:.4f} ±{overall_std:.4f} (std over {n_generations} generations)")
-        print(f"  Transfer score:  {transfer_score:.4f} ±{transfer_std:.4f}")
+        logger.info(f"Results for {model_name}: overall={overall_score:.4f} ±{overall_std:.4f}, transfer={transfer_score:.4f} ±{transfer_std:.4f} (std over {n_generations} generations)")
     else:
-        print(f"  Overall score:   {overall_score:.4f}")
-        print(f"  Transfer score:  {transfer_score:.4f}")
+        logger.info(f"Results for {model_name}: overall={overall_score:.4f}, transfer={transfer_score:.4f}")
 
     return {
         "model": model_name,
@@ -102,17 +103,12 @@ def main():
     if not judgment_files:
         raise FileNotFoundError(f"No *_judgments.csv files found in {judgments_dir}")
 
-    print(f"Found {len(judgment_files)} judgment file(s):")
-    for f in judgment_files:
-        print(f"  {f}")
+    logger.info(f"Found {len(judgment_files)} judgment file(s): {judgment_files}")
 
     summary_rows = [compute_model_metrics(f) for f in judgment_files]
 
     summary = pd.DataFrame(summary_rows)
-    print("\n" + "=" * 60)
-    print("Summary")
-    print("=" * 60)
-    print(summary.to_string(index=False))
+    logger.info("Summary:\n" + summary.to_string(index=False))
 
 
 if __name__ == "__main__":

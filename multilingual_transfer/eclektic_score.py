@@ -11,12 +11,16 @@ See https://arxiv.org/abs/2502.21228 for further details.
 
 import os
 import glob
+import logging
 import argparse
 import yaml
 import pandas as pd
 from tqdm import tqdm
 from openai import OpenAI
 from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -98,9 +102,7 @@ def eval_one(examples, eval_model, languages):
 
 def score_model(generations_path: str, output_dir: str, languages: dict, eval_models: list):
     model_name = os.path.basename(generations_path).replace("_generations.json", "")
-    print(f"\n{'='*60}")
-    print(f"Scoring: {model_name}")
-    print(f"{'='*60}")
+    logger.info(f"Scoring: {model_name}")
 
     eval_data = pd.read_json(generations_path, orient="records")
     original_lang = eval_data[["q_id", "lang", "generation_idx", "original_lang"]].drop_duplicates()
@@ -111,7 +113,7 @@ def score_model(generations_path: str, output_dir: str, languages: dict, eval_mo
     os.makedirs(output_dir, exist_ok=True)
     judgments_path = os.path.join(output_dir, f"{model_name}_judgments.csv")
     judgments[["q_id", "lang", "generation_idx", "original_lang", "judge", "correct"]].to_csv(judgments_path, index=False)
-    print(f"  Saved to {judgments_path}")
+    logger.info(f"Saved to {judgments_path}")
 
 
 def main():
@@ -136,9 +138,7 @@ def main():
     if not generation_files:
         raise FileNotFoundError(f"No *_generations.json files found in {generations_dir}")
 
-    print(f"Found {len(generation_files)} generation file(s):")
-    for f in generation_files:
-        print(f"  {f}")
+    logger.info(f"Found {len(generation_files)} generation file(s): {generation_files}")
 
     for gen_file in generation_files:
         score_model(gen_file, output_dir, languages, eval_models)
