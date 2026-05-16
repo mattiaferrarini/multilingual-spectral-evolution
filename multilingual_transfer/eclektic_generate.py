@@ -61,7 +61,7 @@ def generate_batch(
         conversations.append(messages)
 
     sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens, n=n)
-    outputs = llm.chat(conversations, sampling_params=sampling_params)
+    outputs = llm.chat(conversations, sampling_params=sampling_params, use_tqdm=False)
     return [[o.outputs[i].text for i in range(n)] for o in outputs]
 
 
