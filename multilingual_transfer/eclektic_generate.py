@@ -40,7 +40,11 @@ def separate_example_per_lang(df, languages):
 
 
 def load_model(model_path: str, seed: int | None = None) -> LLM:
-    return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=seed if seed is not None else 42)
+    try:
+        return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=seed if seed is not None else 42)
+    except Exception:
+        logger.warning(f"⚠️ Native vLLM backend failed for {model_path}, falling back to transformers backend.")
+        return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=seed if seed is not None else 42, model_impl="transformers")
 
 
 def generate_batch(
