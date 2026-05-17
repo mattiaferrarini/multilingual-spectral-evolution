@@ -7,5 +7,12 @@ name = "vllm-fuxitranyu"
 version = "0.1.0"
 requires-python = ">=3.10"
 
+[tool.setuptools]
+package-dir = {"" = ".."}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["vllm_fuxitranyu*"]
+
 [project.entry-points."vllm.general_plugins"]
 fuxitranyu = "vllm_fuxitranyu:register"

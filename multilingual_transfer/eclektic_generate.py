@@ -109,12 +109,18 @@ class HFModel:
 def load_model(model_path: str, seed: int | None = None, hf_batch_size: int = 8) -> LLM | HFModel:
     resolved_seed = seed if seed is not None else 42
     try:
-        return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=resolved_seed)
+        model = LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=resolved_seed)
+        logger.info(f"✅ Loaded {model_path} via native vLLM.")
+        return model
     except Exception as e1:
+        logger.warning(f"⚠️ Native vLLM failed for {model_path}: {e1}")
         try:
-            return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=resolved_seed, model_impl="transformers")
+            model = LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=resolved_seed, model_impl="transformers")
+            logger.info(f"✅ Loaded {model_path} via vLLM transformers backend.")
+            return model
         except Exception as e2:
-            logger.warning(f"⚠️ vLLM failed for {model_path} ({e1} | {e2}), falling back to HuggingFace.")
+            logger.warning(f"⚠️ vLLM transformers backend failed for {model_path}: {e2}")
+            logger.info(f"Loading {model_path} via pure HuggingFace (batch_size={hf_batch_size}).")
             return HFModel(model_path, seed=resolved_seed, batch_size=hf_batch_size)
 
 
