@@ -120,7 +120,7 @@ def load_model(model_path: str, seed: int | None = None, hf_batch_size: int = 8)
             return model
         except Exception as e2:
             logger.warning(f"⚠️ vLLM transformers backend failed for {model_path}: {e2}")
-            logger.info(f"Loading {model_path} via pure HuggingFace (batch_size={hf_batch_size}).")
+            logger.info(f"✅ Loading {model_path} via pure HuggingFace (batch_size={hf_batch_size}).")
             return HFModel(model_path, seed=resolved_seed, batch_size=hf_batch_size)
 
 
