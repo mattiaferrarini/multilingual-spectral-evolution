@@ -52,14 +52,19 @@ class _RequestOutput:
 class HFModel:
     """Pure HuggingFace Transformers fallback with the same .chat() interface as vLLM LLM."""
 
-    def __init__(self, model_path: str, seed: int = 42):
+    def __init__(self, model_path: str, seed: int = 42, batch_size: int = 8):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        if self.tokenizer.pad_token_id is None or self.tokenizer.pad_token_id == self.tokenizer.eos_token_id:
+            self.tokenizer.pad_token = self.tokenizer.unk_token or self.tokenizer.eos_token
+            self.tokenizer.pad_token_id = self.tokenizer.unk_token_id or self.tokenizer.eos_token_id
+        self.tokenizer.padding_side = "left"
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto"
         )
         self.seed = seed
+        self.batch_size = batch_size
 
     def chat(self, conversations: list, sampling_params=None, use_tqdm: bool = False) -> list[_RequestOutput]:
         import torch
@@ -67,40 +72,50 @@ class HFModel:
         max_new_tokens = sampling_params.max_tokens if sampling_params else 512
         n = sampling_params.n if sampling_params else 1
 
+        # Older model custom code calls get_max_length() which was removed in newer transformers.
+        from transformers import DynamicCache
+        if not hasattr(DynamicCache, "get_max_length"):
+            DynamicCache.get_max_length = lambda self: None
+
         torch.manual_seed(self.seed)
-        results = []
-        for messages in conversations:
-            input_ids = self.tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, return_tensors="pt"
-            ).to(self.model.device)
+        results = [None] * len(conversations)
+        for batch_start in range(0, len(conversations), self.batch_size):
+            batch = conversations[batch_start : batch_start + self.batch_size]
+            prompts = [
+                self.tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+                for msgs in batch
+            ]
+            tokenized = self.tokenizer(prompts, return_tensors="pt", padding=True).to(self.model.device)
+            prompt_len = tokenized["input_ids"].shape[1]
             with torch.no_grad():
                 output_ids = self.model.generate(
-                    input_ids,
+                    **tokenized,
+                    pad_token_id=self.tokenizer.pad_token_id,
                     max_new_tokens=max_new_tokens,
                     do_sample=temperature > 0,
                     temperature=temperature if temperature > 0 else None,
                     num_return_sequences=n,
                 )
-            prompt_len = input_ids.shape[1]
-            texts = [
-                self.tokenizer.decode(output_ids[i][prompt_len:], skip_special_tokens=True)
-                for i in range(n)
-            ]
-            results.append(_RequestOutput(outputs=[_Output(text=t) for t in texts]))
+            # output_ids shape: [len(batch) * n, prompt_len + new_tokens]
+            for i, _ in enumerate(batch):
+                texts = [
+                    self.tokenizer.decode(output_ids[i * n + k][prompt_len:], skip_special_tokens=True)
+                    for k in range(n)
+                ]
+                results[batch_start + i] = _RequestOutput(outputs=[_Output(text=t) for t in texts])
         return results
 
 
-def load_model(model_path: str, seed: int | None = None) -> LLM | HFModel:
+def load_model(model_path: str, seed: int | None = None, hf_batch_size: int = 8) -> LLM | HFModel:
     resolved_seed = seed if seed is not None else 42
     try:
         return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=resolved_seed)
-    except Exception:
-        logger.warning(f"⚠️ Native vLLM backend failed for {model_path}, falling back to transformers vLLM backend.")
+    except Exception as e1:
         try:
             return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=resolved_seed, model_impl="transformers")
-        except Exception:
-            logger.warning(f"⚠️ vLLM transformers backend also failed for {model_path}, falling back to pure HuggingFace.")
-            return HFModel(model_path, seed=resolved_seed)
+        except Exception as e2:
+            logger.warning(f"⚠️ vLLM failed for {model_path} ({e1} | {e2}), falling back to HuggingFace.")
+            return HFModel(model_path, seed=resolved_seed, batch_size=hf_batch_size)
 
 
 def generate_batch(
@@ -157,6 +172,7 @@ def generate_for_model(
     chunk_size: int = 50,
     seed: int | None = None,
     max_tokens: int = 512,
+    hf_batch_size: int = 8,
 ) -> str:
     model_name = model_path.rstrip("/").split("/")[-1]
     os.makedirs(output_dir, exist_ok=True)
@@ -175,7 +191,7 @@ def generate_for_model(
         logger.info(f"Resuming: {len(done_pairs)} done, {len(pending)} remaining.")
 
     all_rows = list(existing_rows)
-    llm = load_model(model_path, seed=seed)
+    llm = load_model(model_path, seed=seed, hf_batch_size=hf_batch_size)
 
     for chunk_start in range(0, len(pending), chunk_size):
         chunk = pending.iloc[chunk_start : chunk_start + chunk_size]
@@ -222,6 +238,7 @@ def main():
     chunk_size = gen.get("chunk_size", 50)
     seed = gen.get("seed", None)
     max_tokens = gen.get("max_tokens", 512)
+    hf_batch_size = gen.get("hf_batch_size", 8)
 
     logger.info("Loading data...")
     with open(data_path) as f:
@@ -232,7 +249,7 @@ def main():
 
     for model_path in model_paths:
         try:
-            generate_for_model(model_path, data, output_dir, temperature=temperature, n_generations=n_generations, chunk_size=chunk_size, seed=seed, max_tokens=max_tokens)
+            generate_for_model(model_path, data, output_dir, temperature=temperature, n_generations=n_generations, chunk_size=chunk_size, seed=seed, max_tokens=max_tokens, hf_batch_size=hf_batch_size)
         except Exception as e:
             logger.error(f"⚠️ Skipping {model_path}: {e}")
 
