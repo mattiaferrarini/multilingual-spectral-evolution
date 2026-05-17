@@ -16,6 +16,7 @@ Usage: python xnli_generate.py --config multilingual_transfer/configs/xnli.yaml
 
 import os
 import re
+import json
 import logging
 import argparse
 import yaml
@@ -250,7 +251,7 @@ def iter_pair_rows(
         predicted_ids = [parse_label(r) for r in responses]
 
         rows = []
-        for (draw_i, (ctx_indices, test_idx)), response, predicted_id in zip(chunk, responses, predicted_ids):
+        for (draw_i, (ctx_indices, test_idx)), prompt, response, predicted_id in zip(chunk, prompts, responses, predicted_ids):
             test_example = eval_datasets[tgt_lang][test_idx]
             rows.append({
                 "draw_i": draw_i,
@@ -262,6 +263,7 @@ def iter_pair_rows(
                 "hypothesis": test_example["hypothesis"],
                 "gold_label": LABEL_MAP[test_example["label"]],
                 "gold_label_id": test_example["label"],
+                "prompt": prompt,
                 "response": response,
                 "predicted_label": LABEL_MAP.get(predicted_id, "unknown"),
                 "predicted_label_id": predicted_id,
@@ -330,11 +332,18 @@ def main():
     logger.info(f"{len(pairs)} language pairs × {len(k_values)} k values = {len(pairs) * len(k_values)} experiments")
 
     pred_path = os.path.join(output_dir, f"{model_name}_predictions.csv")
+    gen_path = os.path.join(output_dir, f"{model_name}_generations.json")
     if os.path.exists(pred_path):
         all_rows = pd.read_csv(pred_path).to_dict(orient="records")
         logger.info(f"Resuming from {len(all_rows)} existing rows in {pred_path}")
     else:
         all_rows = []
+    if os.path.exists(gen_path) and os.path.exists(pred_path):
+        with open(gen_path) as f:
+            gen_rows = json.load(f)
+        logger.info(f"Loaded {len(gen_rows)} existing generation records from {gen_path}")
+    else:
+        gen_rows = []
 
     done_set: set[tuple] = {(r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in all_rows}
 
@@ -359,10 +368,19 @@ def main():
                 draws, ctx_datasets, eval_datasets,
                 done_draw_is, temperature, max_tokens, chunk_size, seed,
             ):
+                for row in chunk_rows:
+                    gen_rows.append({
+                        "draw_i": row["draw_i"], "k": row["k"],
+                        "src_lang": row["src_lang"], "tgt_lang": row["tgt_lang"],
+                        "test_idx": row["test_idx"], "prompt": row.pop("prompt"),
+                        "response": row["response"], "gold_label_id": row["gold_label_id"],
+                    })
                 all_rows.extend(chunk_rows)
                 done_set.update((r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in chunk_rows)
                 completed += len(chunk_rows)
                 pd.DataFrame(all_rows).to_csv(pred_path, index=False)
+                with open(gen_path, "w") as f:
+                    json.dump(gen_rows, f, ensure_ascii=False, indent=2)
                 logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{completed}/{n_pending}] saved.")
 
     pred_df = pd.DataFrame(all_rows)
@@ -383,8 +401,9 @@ def main():
         )
         logger.info(f"\nk={k} mean accuracy (rows=context lang, cols=eval lang):\n{matrix.to_string()}")
 
-    logger.info(f"\nPredictions → {pred_path}")
-    logger.info(f"Summary     → {summary_path}")
+    logger.info(f"\nPredictions  → {pred_path}")
+    logger.info(f"Generations  → {gen_path}")
+    logger.info(f"Summary      → {summary_path}")
 
 
 if __name__ == "__main__":
