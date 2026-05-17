@@ -5,3 +5,4 @@ description.md
 plots/
 data/
 nohup.out
+*.egg-info

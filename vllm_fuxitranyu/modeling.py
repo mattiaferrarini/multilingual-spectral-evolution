@@ -12,10 +12,7 @@ from transformers.activations import ACT2FN
 from vllm.compilation.decorators import support_torch_compile
 from vllm.config import CacheConfig, VllmConfig
 from vllm.distributed import get_pp_group, get_tensor_model_parallel_world_size
-from vllm.model_executor.layers.attention import (
-    Attention,
-    EncoderOnlyAttention,
-)
+from vllm.attention import Attention
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (
     ColumnParallelLinear,
@@ -34,12 +31,10 @@ from vllm.model_executor.model_loader.weight_utils import (
     maybe_remap_kv_scale_name,
 )
 from vllm.sequence import IntermediateTensors
-from vllm.v1.attention.backend import AttentionType
+from vllm.attention import AttentionType
 
 from vllm.model_executor.models.adapters import as_embedding_model, as_seq_cls_model
 from vllm.model_executor.models.interfaces import (
-    EagleModelMixin,
-    SupportsEagle,
     SupportsEagle3,
     SupportsLoRA,
     SupportsPP,
@@ -175,13 +170,7 @@ class FuxiTranyuAttention(nn.Module):
             if is_sliding:
                 sliding_window = config.sliding_window
 
-        attn_cls = (
-            EncoderOnlyAttention
-            if attn_type == AttentionType.ENCODER_ONLY
-            else Attention
-        )
-
-        self.attn = attn_cls(
+        self.attn = Attention(
             self.num_heads,
             self.head_dim,
             self.scaling,
@@ -217,6 +206,7 @@ class FuxiTranyuAttention(nn.Module):
 
         self.rotary_emb = get_rope(
             self.head_dim,
+            rotary_dim=self.head_dim,
             max_position=self.max_position_embeddings,
             base=getattr(config, "rope_theta", 10000),
             rope_scaling=getattr(config, "rope_scaling", None),
@@ -309,7 +299,7 @@ class FuxiTranyuDecoderLayer(nn.Module):
         "inputs_embeds": {0: "b"},
     },
 )
-class FuxiTranyuModel(nn.Module, EagleModelMixin):
+class FuxiTranyuModel(nn.Module):
     def __init__(
         self,
         *,
@@ -350,6 +340,15 @@ class FuxiTranyuModel(nn.Module, EagleModelMixin):
         self.make_empty_intermediate_tensors = make_empty_intermediate_tensors_factory(
             ["hidden_states", "residual"], config.hidden_size
         )
+
+    def _maybe_add_hidden_state(
+        self,
+        hidden_states_list: list,
+        layer_idx: int,
+        hidden_states: torch.Tensor,
+        residual: torch.Tensor | None,
+    ) -> list:
+        return hidden_states_list
 
     def embed_input_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self.embed_tokens(input_ids)
@@ -458,9 +457,7 @@ class FuxiTranyuModel(nn.Module, EagleModelMixin):
         return loaded_params
 
 
-class FuxiTranyuForCausalLM(
-    nn.Module, SupportsLoRA, SupportsPP, SupportsEagle, SupportsEagle3
-):
+class FuxiTranyuForCausalLM(nn.Module, SupportsLoRA, SupportsPP, SupportsEagle3):
     packed_modules_mapping = {
         "qkv_proj": ["q_proj", "k_proj", "v_proj"],
     }
@@ -554,3 +551,4 @@ class FuxiTranyuBidirectionalForSequenceClassification(as_seq_cls_model(FuxiTran
 
 class FuxiTranyuBidirectionalModel(as_embedding_model(FuxiTranyuForCausalLM)):
     pass
+
