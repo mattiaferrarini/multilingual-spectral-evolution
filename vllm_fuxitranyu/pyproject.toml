@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "vllm-fuxitranyu"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[project.entry-points."vllm.general_plugins"]
+fuxitranyu = "vllm_fuxitranyu:register"
