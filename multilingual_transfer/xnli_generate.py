@@ -38,6 +38,17 @@ from checkpoints import resolve_checkpoints, apply_checkpoint_filters, ckpt_labe
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def _fmt(seconds: float) -> str:
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m {s:02d}s"
+    if m:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
+
+
 LABEL_MAP = {0: "entailment", 1: "neutral", 2: "contradiction"}
 LABEL_KEYWORDS = {"entailment": 0, "neutral": 1, "contradiction": 2}
 
@@ -491,6 +502,9 @@ def main():
     pairs = list(product(languages, repeat=2))
     logger.info(f"{len(pairs)} language pairs × {len(k_values)} k values = {len(pairs) * len(k_values)} experiments per checkpoint")
 
+    run_start = time.monotonic()
+    ckpt_times: list[float] = []
+
     for ckpt_idx, ckpt in enumerate(checkpoints):
         label = ckpt_label(ckpt)
         logger.info(
@@ -512,6 +526,7 @@ def main():
                 logger.info(f"Checkpoint {label}: all experiments complete, skipping model load.")
                 continue
 
+        ckpt_start = time.monotonic()
         logger.info(f"Loading model (revision={label!r})...")
         llm = load_model(model_path, revision=ckpt, seed=seed, hf_batch_size=hf_batch_size)
 
@@ -535,6 +550,19 @@ def main():
 
         logger.info(f"Unloading model for checkpoint {label}...")
         unload_model(llm)
+
+        ckpt_elapsed = time.monotonic() - ckpt_start
+        ckpt_times.append(ckpt_elapsed)
+        total_elapsed = time.monotonic() - run_start
+        done_count = len(ckpt_times)
+        remaining_count = len(checkpoints) - ckpt_idx - 1
+        avg = total_elapsed / done_count
+        eta = avg * remaining_count
+        logger.info(
+            f"Checkpoint {label} done | took {_fmt(ckpt_elapsed)}"
+            f" | total elapsed {_fmt(total_elapsed)}"
+            f" | ~{_fmt(eta)} remaining ({remaining_count} checkpoint(s) @ avg {_fmt(avg)} each)"
+        )
 
     logger.info(f"\nAll checkpoints done. Results in {output_dir}/")
 
