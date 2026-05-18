@@ -20,6 +20,7 @@ Usage examples:
 """
 
 import argparse
+import json
 import math
 import os
 import re
@@ -29,6 +30,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 from PIL import Image
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -150,10 +152,60 @@ def _checkpoint_colors(checkpoints):
     return {ckpt: cmap(i / (n - 1) if n > 1 else 0.5) for i, ckpt in enumerate(checkpoints)}
 
 
+def _curve_turning_point(xs, ys, min_x=None):
+    arr = np.array(ys, dtype=float)
+    xs_arr = np.array(xs, dtype=float)
+    finite = np.isfinite(arr)
+    if min_x is not None:
+        finite &= xs_arr >= min_x
+    if finite.sum() < 2:
+        return None
+
+    finite_idx = np.nonzero(finite)[0]
+    idx = int(finite_idx[np.nanargmax(arr[finite])])
+    return xs_arr[idx], arr[idx]
+
+
+def _early_ascent_point(subset, checkpoints, layer_nums, metric):
+    """Find the valley layer (minimum in early layers) where the profile starts rising."""
+    x = [layer_num(l) for l in layer_nums]
+    n = len(layer_nums)
+
+    arrays = []
+    for ckpt in checkpoints:
+        vals = (
+            subset[subset["checkpoint"] == ckpt]
+            .set_index("layer")
+            .reindex(layer_nums)[metric]
+            .to_numpy(dtype=float)
+        )
+        arrays.append(vals)
+
+    if not arrays:
+        return None
+
+    mean_vals = np.nanmean(np.array(arrays), axis=0)
+
+    # Search in the first third of layers (min 8) for the valley
+    search_end = min(n, max(8, n // 3))
+    candidates = [(i, v) for i, v in enumerate(mean_vals[:search_end]) if np.isfinite(v)]
+    if not candidates:
+        return None
+
+    min_i, min_v = min(candidates, key=lambda t: t[1])
+    return (float(x[min_i]), checkpoints[0] if checkpoints else "unknown", float(min_v))
+
+
 def _save(fig, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+
+def _save_json(data, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, default=str)
 
 
 # ── Plot type 1: training curves ─────────────────────────────────────────────
@@ -164,7 +216,6 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
     checkpoints = sort_checkpoints(df["checkpoint"].unique())
     lang_colors = _language_colors(languages)
 
-    has_main = any(str(c).lower() == "main" for c in checkpoints)
     numeric_ckpts = [c for c in checkpoints if str(c).lower() != "main"]
     numeric_xs = [_ckpt_key(c) for c in numeric_ckpts]
     min_numeric = min(numeric_xs, default=0)
@@ -214,8 +265,8 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                         s = np.array(smoothed_ys, dtype=float)
                         valid_idx = [i for i, v in enumerate(s) if not np.isnan(v)]
                         if len(valid_idx) >= 2:
-                            min_i = min(valid_idx, key=lambda i: s[i])
-                            max_i = max(valid_idx, key=lambda i: s[i])
+                            min_i = min(valid_idx, key=lambda i, s=s: s[i])
+                            max_i = max(valid_idx, key=lambda i, s=s: s[i])
 
                             def _deriv_jump(idx):
                                 lefts = [j for j in valid_idx if j < idx]
@@ -237,7 +288,7 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                                 denom = abs(d_left) + abs(d_right)
                                 frac = abs(d_left) / denom if denom > 0 else 0.5
                                 x_cross = xs_arr[ext_i] + frac * (xs_arr[next_i] - xs_arr[ext_i])
-                                per_lang_cps.append(min(xs_common, key=lambda x: abs(x - x_cross)))
+                                per_lang_cps.append(min(xs_common, key=lambda x, x_cross=x_cross: abs(x - x_cross)))
                             else:
                                 per_lang_cps.append(xs_arr[ext_i])
 
@@ -294,8 +345,8 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                     ax.annotate(lang, xy=(lx, ly), xycoords="data",
                                 xytext=(1.04, label_y_frac), textcoords="axes fraction",
                                 color=color, fontsize=12, va="center", clip_on=False,
-                                arrowprops=dict(arrowstyle="-", color=color,
-                                                lw=1, alpha=0.5, relpos=(0, 0.5)))
+                                arrowprops={"arrowstyle": "-", "color": color,
+                                            "lw": 1, "alpha": 0.5, "relpos": (0, 0.5)})
 
                 ax.set_xlim(left=left_x, right=max_x)
                 ax.set_xticks(tick_positions)
@@ -332,7 +383,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                 if subset.empty:
                     continue
 
-                fig, ax = plt.subplots(figsize=(10, 5))
+                fig, ax = plt.subplots(figsize=(12, 6))
                 for ckpt in checkpoints:
                     vals = (
                         subset[subset["checkpoint"] == ckpt]
@@ -342,20 +393,103 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                     ax.plot(x, vals, marker="o", label=ckpt,
                             color=ckpt_colors[ckpt], linewidth=2, markersize=5)
 
-                ax.set_xlabel("Layer")
-                ax.set_ylabel(metric_label)
+                main_ckpt = next((ckpt for ckpt in checkpoints if str(ckpt).lower() == "main"), None)
+                compressed_turning_point = None
+                if main_ckpt is not None:
+                    main_vals = (
+                        subset[subset["checkpoint"] == main_ckpt]
+                        .set_index("layer")
+                        .reindex(layer_nums)[metric]
+                        .to_numpy()
+                    )
+                    compressed_turning_point = _curve_turning_point(x, main_vals, min_x=3)
+
+                early_turning_point = _early_ascent_point(subset, checkpoints, layer_nums, metric)
+
+                turning_point_handles = []
+                early_line_color = "#0072B2"  # Professional blue
+                compressed_line_color = "#E69F00"  # Professional orange
+
+                ax.set_xlabel("Layer", fontsize=12)
+                ax.set_ylabel(metric_label, fontsize=12)
                 if y_ranges and (metric, agg) in y_ranges:
                     ax.set_ylim(y_ranges[(metric, agg)])
                 title = f"{metric_label} by layer — {lang} | agg={agg}"
                 if model_label:
                     title = f"[{model_label}] " + title
-                ax.set_title(title)
-                ax.legend(title="Checkpoint", bbox_to_anchor=(1.02, 1), loc="upper left")
+                ax.set_title(title, fontsize=13)
+                if early_turning_point is not None:
+                    early_x, early_ckpt, _ = early_turning_point
+                    ax.axvline(early_x, color=early_line_color, linestyle=(0, (6, 4)), linewidth=1.4,
+                               alpha=0.85, zorder=0)
+                    turning_point_handles.append(
+                        Line2D([0], [0], color=early_line_color, linestyle=(0, (6, 4)), linewidth=1.4,
+                               label="Early ascent (valley)")
+                    )
+                if compressed_turning_point is not None:
+                    compressed_x, _ = compressed_turning_point
+                    ax.axvline(compressed_x, color=compressed_line_color, linestyle=(0, (6, 4)), linewidth=1.4,
+                               alpha=0.85, zorder=0)
+                    turning_point_handles.append(
+                        Line2D([0], [0], color=compressed_line_color, linestyle=(0, (6, 4)), linewidth=1.4,
+                               label="Compressed turning point")
+                    )
+                n_ckpts = len(checkpoints)
+                ncol = min(8, max(3, (n_ckpts + 3) // 4))  # Adaptive columns based on checkpoint count
+                checkpoint_legend = ax.legend(title="Checkpoint", fontsize=8, title_fontsize=9,
+                                              ncol=ncol, loc="upper center", bbox_to_anchor=(0.5, -0.20),
+                                              frameon=True, framealpha=0.95)
+                if turning_point_handles:
+                    tp_legend = ax.legend(handles=turning_point_handles, title="Turning points",
+                                          fontsize=8, title_fontsize=9, loc="upper right",
+                                          frameon=True, framealpha=0.95)
+                    ax.add_artist(checkpoint_legend)
+                    ax.add_artist(tp_legend)
+                else:
+                    ax.add_artist(checkpoint_legend)
                 ax.grid(True, alpha=0.3)
-                plt.tight_layout()
+                fig.tight_layout(rect=(0, 0.14, 1, 1))
 
                 fname = f"layer_profile_{metric}_{lang}_{agg}.png"
                 _save(fig, os.path.join(output_dir, "layer_profiles", metric, fname))
+
+                plot_data = {
+                    "metric": metric,
+                    "language": lang,
+                    "aggregation": agg,
+                    "layers": [layer_num(l) for l in layer_nums],
+                    "checkpoints": [str(c) for c in checkpoints],
+                    "checkpoint_data": {},
+                    "turning_points": {},
+                }
+                for ckpt in checkpoints:
+                    vals = (
+                        subset[subset["checkpoint"] == ckpt]
+                        .set_index("layer")
+                        .reindex(layer_nums)[metric]
+                        .to_numpy()
+                    )
+                    plot_data["checkpoint_data"][str(ckpt)] = [float(v) if np.isfinite(v) else None for v in vals]
+
+                if early_turning_point is not None:
+                    early_x, early_ckpt, early_val = early_turning_point
+                    plot_data["turning_points"]["early_ascent"] = {
+                        "layer": float(early_x),
+                        "checkpoint": str(early_ckpt),
+                        "value": float(early_val),
+                        "color": early_line_color,
+                    }
+                if compressed_turning_point is not None:
+                    compressed_x, compressed_val = compressed_turning_point
+                    plot_data["turning_points"]["compressed"] = {
+                        "layer": float(compressed_x),
+                        "checkpoint": str(main_ckpt) if main_ckpt else "unknown",
+                        "value": float(compressed_val),
+                        "color": compressed_line_color,
+                    }
+
+                json_fname = f"layer_profile_{metric}_{lang}_{agg}.json"
+                _save_json(plot_data, os.path.join(output_dir, "layer_profiles", metric, json_fname))
 
         # ── All-languages summary plot (mean across checkpoints) ──────────────
         for agg in aggregations:
@@ -372,17 +506,21 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                 ax.plot(x, mean_vals.values, marker="o", label=lang,
                         color=lang_colors[lang], linewidth=2, markersize=4)
 
-            ax.set_xlabel("Layer")
-            ax.set_ylabel(metric_label)
+            ax.set_xlabel("Layer", fontsize=12)
+            ax.set_ylabel(metric_label, fontsize=12)
             if y_ranges and (metric, agg) in y_ranges:
                 ax.set_ylim(y_ranges[(metric, agg)])
             title = f"{metric_label} by layer — all languages (checkpoint mean) | agg={agg}"
             if model_label:
                 title = f"[{model_label}] " + title
-            ax.set_title(title)
-            ax.legend(title="Language", bbox_to_anchor=(1.02, 1), loc="upper left")
+            ax.set_title(title, fontsize=13)
+            n_langs = len(languages)
+            ncol = min(7, max(3, (n_langs + 2) // 3))
+            ax.legend(title="Language", fontsize=9, title_fontsize=10,
+                     ncol=ncol, loc="upper center", bbox_to_anchor=(0.5, -0.18),
+                     frameon=True, framealpha=0.95)
             ax.grid(True, alpha=0.3)
-            plt.tight_layout()
+            fig.tight_layout(rect=(0, 0.14, 1, 1))
 
             fname = f"layer_profile_{metric}_all_languages_{agg}.png"
             _save(fig, os.path.join(output_dir, "layer_profiles", metric, fname))
@@ -595,11 +733,15 @@ def main():
             print(f"  {m} / {a}: [{round(lo,2)}, {round(hi,2)}]")
         print()
 
-    kw = dict(
-        metrics=metrics, languages=languages, layers=layers,
-        aggregations=aggregations, output_dir=args.output_dir,
-        model_label=args.model, y_ranges=y_ranges,
-    )
+    kw = {
+        "metrics": metrics,
+        "languages": languages,
+        "layers": layers,
+        "aggregations": aggregations,
+        "output_dir": args.output_dir,
+        "model_label": args.model,
+        "y_ranges": y_ranges,
+    }
 
     if "training_curves" in args.plot_types:
         print("[1/3] Training curves...")
