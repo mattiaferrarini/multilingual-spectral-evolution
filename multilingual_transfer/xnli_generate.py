@@ -17,6 +17,7 @@ Usage: python xnli_generate.py --config multilingual_transfer/configs/xnli.yaml
 import os
 import re
 import json
+import time
 import logging
 import argparse
 import yaml
@@ -341,6 +342,13 @@ def main():
 
     done_set: set[tuple] = {(r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in all_rows}
 
+    total_experiments = len(k_values) * len(pairs)
+    completed_experiments = sum(
+        1 for k in k_values for src_lang, tgt_lang in pairs
+        if len({t[0] for t in done_set if t[1:] == (k, src_lang, tgt_lang)}) == n_eval
+    )
+    loop_start = time.monotonic()
+
     for k in k_values:
         for src_lang, tgt_lang in pairs:
             src_lang_idx = languages.index(src_lang)
@@ -353,8 +361,6 @@ def main():
 
             if done_draw_is:
                 logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] Resuming: {len(done_draw_is)} done, {n_pending} remaining.")
-            else:
-                logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] Starting ({n_pending} draws).")
 
             pair_rows = generate_pair_rows(
                 llm, src_lang, tgt_lang, src_lang_idx, k,
@@ -373,7 +379,16 @@ def main():
             pd.DataFrame(all_rows).to_csv(pred_path, index=False)
             with open(gen_path, "w") as f:
                 json.dump(gen_rows, f, ensure_ascii=False, indent=2)
-            logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{len(pair_rows)}/{n_pending}] saved.")
+
+            completed_experiments += 1
+            elapsed = time.monotonic() - loop_start
+            remaining = total_experiments - completed_experiments
+            eta_s = (elapsed / completed_experiments) * remaining
+            h, m = divmod(int(eta_s), 3600)
+            m, s = divmod(m, 60)
+            eta_str = f"{h}h{m:02d}m{s:02d}s" if h else f"{m}m{s:02d}s"
+            acc = sum(r["correct"] for r in pair_rows) / len(pair_rows) if pair_rows else float("nan")
+            logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{len(pair_rows)}/{n_pending}] acc={acc:.3f} saved. ETA: {eta_str} ({completed_experiments}/{total_experiments})")
 
     pred_df = pd.DataFrame(all_rows)
 
