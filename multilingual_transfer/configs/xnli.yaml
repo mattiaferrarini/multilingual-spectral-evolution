@@ -1,10 +1,17 @@
-model: TJUNLP/FuxiTranyu-8B
+model:
+  name: TJUNLP/FuxiTranyu-8B
+  checkpoints: null           # null = default branch, "all" = auto-discover, or list of branch names
+  max_checkpoints: 2       # cap the number of checkpoints processed (null = no limit)
+  checkpoint_step: null       # keep every Nth checkpoint (e.g. 3 = indices 0, 3, 6, …; null = all)
+  branch_filter_pattern: null # regex to filter branches (null = no filter)
+  # For Apertus, use: branch_filter_pattern: "^step\\d+-tokens\\d+[BT]$"
+  trust_remote_code: true
 
 output_dir: results/xnli
 
 icl:
-  k: [4, 8, 16]        # number of in-context examples — int or list of ints (0 = zero-shot)
-  n_eval: 500                # number of evaluation examples (in target language)
+  k: [4]        # number of in-context examples — int or list of ints (0 = zero-shot)
+  n_eval: 2                # number of evaluation examples (in target language)
   context_split: validation  # split used for ICL shots (human-translated, avoids test contamination)
   eval_split: test           # split used for evaluation
   balanced_labels: true      # sample equal entailment/neutral/contradiction in context

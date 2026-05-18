@@ -8,19 +8,22 @@ For each of n_eval independent draws:
   - 1 test example is sampled from the test split (i.i.d. across draws)
   - All (src_lang, tgt_lang) pairs are evaluated under the same draw
 
-Outputs a single tall-format CSV with one row per prediction.
-Mean and std accuracy per (k, src_lang, tgt_lang) are reported in a separate summary CSV.
+All checkpoints are evaluated on the identical context and test draws (pre-computed once).
+One predictions CSV and one generations JSONL are saved per checkpoint.
 
 Usage: python xnli_generate.py --config multilingual_transfer/configs/xnli.yaml
 """
 
+import gc
 import os
 import re
+import sys
 import json
 import time
 import logging
 import argparse
 import yaml
+import torch
 import numpy as np
 import pandas as pd
 from itertools import product
@@ -28,6 +31,9 @@ from dataclasses import dataclass
 from datasets import load_dataset
 from vllm import LLM, SamplingParams
 from dotenv import load_dotenv
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from checkpoints import resolve_checkpoints, apply_checkpoint_filters, ckpt_label
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -144,22 +150,20 @@ class _RequestOutput:
 class HFModel:
     """HuggingFace Transformers fallback for raw text completion (no chat template)."""
 
-    def __init__(self, model_path: str, seed: int = 42, batch_size: int = 8):
-        import torch
+    def __init__(self, model_path: str, revision: str | None = None, seed: int = 42, batch_size: int = 8):
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, revision=revision, trust_remote_code=True)
         if self.tokenizer.pad_token_id is None or self.tokenizer.pad_token_id == self.tokenizer.eos_token_id:
             self.tokenizer.pad_token = self.tokenizer.unk_token or self.tokenizer.eos_token
             self.tokenizer.pad_token_id = self.tokenizer.unk_token_id or self.tokenizer.eos_token_id
         self.tokenizer.padding_side = "left"
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_path, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto"
+            model_path, revision=revision, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto"
         )
         self.seed = seed
         self.batch_size = batch_size
 
     def generate(self, prompts: list[str], sampling_params=None, **kwargs) -> list[_RequestOutput]:
-        import torch
         temperature = sampling_params.temperature if sampling_params else 0.0
         max_new_tokens = sampling_params.max_tokens if sampling_params else 16
 
@@ -187,15 +191,56 @@ class HFModel:
         return results
 
 
-def load_model(model_path: str, seed: int = 42, hf_batch_size: int = 8) -> LLM | HFModel:
+def load_model(model_path: str, revision: str | None = None, seed: int = 42, hf_batch_size: int = 8) -> LLM | HFModel:
+    kwargs = dict(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=seed)
+    if revision is not None:
+        kwargs["revision"] = revision
     try:
-        return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=seed)
+        return LLM(**kwargs)
     except Exception as e1:
         try:
-            return LLM(model=model_path, trust_remote_code=True, dtype="bfloat16", seed=seed, model_impl="transformers")
+            return LLM(**kwargs, model_impl="transformers")
         except Exception as e2:
             logger.warning(f"vLLM failed ({e1} | {e2}), falling back to HuggingFace.")
-            return HFModel(model_path, seed=seed, batch_size=hf_batch_size)
+            return HFModel(model_path, revision=revision, seed=seed, batch_size=hf_batch_size)
+
+
+def unload_model(llm: LLM | HFModel) -> None:
+    """Release GPU memory between checkpoints. Handles both vLLM V0 and V1 shutdown APIs."""
+    if isinstance(llm, LLM):
+        engine = getattr(llm, "llm_engine", None)
+        if engine is not None:
+            try:
+                engine_core = getattr(engine, "engine_core", None)
+                if engine_core is not None and hasattr(engine_core, "shutdown"):
+                    engine_core.shutdown()
+                    logger.info("vLLM V1 engine_core shutdown completed.")
+            except Exception as e:
+                logger.warning("vLLM V1 engine_core shutdown failed: %s", e)
+            try:
+                model_executor = getattr(engine, "model_executor", None)
+                if model_executor is not None and hasattr(model_executor, "shutdown"):
+                    model_executor.shutdown()
+                    logger.info("vLLM V0 model_executor shutdown completed.")
+            except Exception as e:
+                logger.warning("vLLM V0 model_executor shutdown failed: %s", e)
+            try:
+                if hasattr(engine, "shutdown"):
+                    engine.shutdown()
+            except Exception as e:
+                logger.warning("vLLM engine shutdown failed: %s", e)
+
+    del llm
+    gc.collect()
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception as e:
+        logger.warning("CUDA cache cleanup failed: %s", e)
+    logger.info("Waiting for vLLM worker processes to release GPU memory...")
+    time.sleep(15)
+    logger.info("vLLM memory cleanup completed.")
 
 
 def generate_completions(
@@ -271,69 +316,32 @@ def generate_pair_rows(
     return rows
 
 
-def main():
-    load_dotenv()
-    parser = argparse.ArgumentParser(description="XNLI cross-lingual ICL evaluation")
-    parser.add_argument("--config", default="multilingual_transfer/configs/xnli.yaml")
-    args = parser.parse_args()
+def run_checkpoint(
+    llm: LLM | HFModel,
+    label: str,
+    pairs: list[tuple[str, str]],
+    k_values: list[int],
+    ctx_draws: dict[int, list[list[int]]],
+    test_indices: list[int],
+    languages: list[str],
+    ctx_datasets: dict[str, list[dict]],
+    eval_datasets: dict[str, list[dict]],
+    n_eval: int,
+    temperature: float,
+    max_tokens: int,
+    seed: int,
+    output_dir: str,
+    model_name: str,
+) -> None:
+    """Evaluate one checkpoint across all (k, src_lang, tgt_lang) combos and write per-checkpoint files."""
+    pred_path = os.path.join(output_dir, f"{model_name}_{label}_predictions.csv")
+    gen_path = os.path.join(output_dir, f"{model_name}_{label}_generations.jsonl")
+    summary_path = os.path.join(output_dir, f"{model_name}_{label}_summary.csv")
 
-    with open(args.config) as f:
-        config = yaml.safe_load(f)
-
-    model_path = config["model"]
-    output_dir = config.get("output_dir", "results/xnli")
-    languages = list(config["languages"].keys())
-    gen = config.get("generation", {})
-    temperature = gen.get("temperature", 0.0)
-    max_tokens = gen.get("max_tokens", 16)
-    seed = gen.get("seed", 42)
-    hf_batch_size = gen.get("hf_batch_size", 8)
-    icl = config.get("icl", {})
-    k_raw = icl.get("k", 4)
-    k_values: list[int] = k_raw if isinstance(k_raw, list) else [k_raw]
-    n_eval = icl.get("n_eval", 500)
-    context_split = icl.get("context_split", "validation")
-    eval_split = icl.get("eval_split", "test")
-
-    model_name = model_path.rstrip("/").split("/")[-1]
-    logger.info(f"Model: {model_name} | k={k_values} | n_eval={n_eval} | {len(languages)} languages")
-
-    # Use one reference language to determine dataset sizes and label distribution.
-    # Labels are identical across all XNLI languages, so any language works.
-    ref_lang = languages[0]
-    logger.info(f"Loading reference {context_split} split [{ref_lang}]...")
-    ref_ctx_ds = load_dataset("facebook/xnli", ref_lang, split=context_split)
-    ref_eval_size = len(load_dataset("facebook/xnli", ref_lang, split=eval_split))
-
-    by_label = precompute_by_label(ref_ctx_ds)
-
-    logger.info(f"Sampling {n_eval} test indices...")
-    test_indices = sample_test_indices(ref_eval_size, n_eval, seed)
-
-    os.makedirs(output_dir, exist_ok=True)
-    pd.DataFrame([
-        {"draw_i": i, "test_idx": test_indices[i]}
-        for i in range(n_eval)
-    ]).to_csv(os.path.join(output_dir, "test_indices.csv"), index=False)
-
-    logger.info(f"Loading full {context_split} split for all languages...")
-    ctx_datasets = load_full_split(languages, context_split)
-
-    logger.info(f"Loading full {eval_split} split for all languages...")
-    eval_datasets = load_full_split(languages, eval_split)
-
-    logger.info("Loading model...")
-    llm = load_model(model_path, seed=seed, hf_batch_size=hf_batch_size)
-
-    pairs = list(product(languages, repeat=2))
-    logger.info(f"{len(pairs)} language pairs × {len(k_values)} k values = {len(pairs) * len(k_values)} experiments")
-
-    pred_path = os.path.join(output_dir, f"{model_name}_predictions.csv")
-    gen_path = os.path.join(output_dir, f"{model_name}_generations.jsonl")
     if os.path.exists(pred_path):
         existing_df = pd.read_csv(pred_path)
         done_set: set[tuple] = {(r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in existing_df.to_dict(orient="records")}
-        logger.info(f"Resuming from {len(existing_df)} existing rows in {pred_path}")
+        logger.info(f"  Resuming from {len(existing_df)} existing rows in {pred_path}")
     else:
         done_set = set()
 
@@ -345,8 +353,7 @@ def main():
     loop_start = time.monotonic()
 
     for k in k_values:
-        ctx_for_k = sample_ctx_for_k(by_label, k, n_eval, seed)
-        draws_k = list(zip(ctx_for_k, test_indices))
+        draws_k = list(zip(ctx_draws[k], test_indices))
         for src_lang, tgt_lang in pairs:
             src_lang_idx = languages.index(src_lang)
             done_draw_is = {t[0] for t in done_set if t[1:] == (k, src_lang, tgt_lang)}
@@ -384,7 +391,7 @@ def main():
             completed_experiments += 1
             elapsed = time.monotonic() - loop_start
             remaining = total_experiments - completed_experiments
-            eta_s = (elapsed / completed_experiments) * remaining
+            eta_s = (elapsed / completed_experiments) * remaining if completed_experiments > 0 else 0
             h, m = divmod(int(eta_s), 3600)
             m, s = divmod(m, 60)
             eta_str = f"{h}h{m:02d}m{s:02d}s" if h else f"{m}m{s:02d}s"
@@ -392,14 +399,12 @@ def main():
             logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{len(pair_rows)}/{n_pending}] acc={acc:.3f} saved. ETA: {eta_str} ({completed_experiments}/{total_experiments})")
 
     pred_df = pd.read_csv(pred_path)
-
     summary_df = (
         pred_df[pred_df["predicted_label_id"].notna()]
         .groupby(["k", "src_lang", "tgt_lang"], sort=True)
         .agg(mean_accuracy=("correct", "mean"), std_accuracy=("correct", "std"), n=("correct", "count"))
         .reset_index()
     )
-    summary_path = os.path.join(output_dir, f"{model_name}_summary.csv")
     summary_df.to_csv(summary_path, index=False)
 
     for k in k_values:
@@ -407,11 +412,131 @@ def main():
             summary_df[summary_df["k"] == k]
             .pivot(index="src_lang", columns="tgt_lang", values="mean_accuracy")
         )
-        logger.info(f"\nk={k} mean accuracy (rows=context lang, cols=eval lang):\n{matrix.to_string()}")
+        logger.info(f"\n[{label}] k={k} mean accuracy (rows=context lang, cols=eval lang):\n{matrix.to_string()}")
 
-    logger.info(f"\nPredictions  → {pred_path}")
-    logger.info(f"Generations  → {gen_path}")
-    logger.info(f"Summary      → {summary_path}")
+    logger.info(f"  Predictions  → {pred_path}")
+    logger.info(f"  Generations  → {gen_path}")
+    logger.info(f"  Summary      → {summary_path}")
+
+
+def main():
+    load_dotenv()
+    parser = argparse.ArgumentParser(description="XNLI cross-lingual ICL evaluation")
+    parser.add_argument("--config", default="multilingual_transfer/configs/xnli.yaml")
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        config = yaml.safe_load(f)
+
+    model_cfg = config["model"]
+    if isinstance(model_cfg, str):
+        model_cfg = {"name": model_cfg}
+    model_path = model_cfg["name"]
+    model_name = model_path.rstrip("/").split("/")[-1]
+
+    output_dir = config.get("output_dir", "results/xnli")
+    languages = list(config["languages"].keys())
+    gen = config.get("generation", {})
+    temperature = gen.get("temperature", 0.0)
+    max_tokens = gen.get("max_tokens", 16)
+    seed = gen.get("seed", 42)
+    hf_batch_size = gen.get("hf_batch_size", 8)
+    icl = config.get("icl", {})
+    k_raw = icl.get("k", 4)
+    k_values: list[int] = k_raw if isinstance(k_raw, list) else [k_raw]
+    n_eval = icl.get("n_eval", 500)
+    context_split = icl.get("context_split", "validation")
+    eval_split = icl.get("eval_split", "test")
+
+    # --- Resolve checkpoints ---
+    checkpoints = resolve_checkpoints(
+        model_path,
+        model_cfg.get("checkpoints"),
+        branch_filter_pattern=model_cfg.get("branch_filter_pattern"),
+    )
+    checkpoints = apply_checkpoint_filters(
+        checkpoints,
+        checkpoint_step=model_cfg.get("checkpoint_step"),
+        max_checkpoints=model_cfg.get("max_checkpoints"),
+    )
+    logger.info(f"Model: {model_name} | checkpoints: {len(checkpoints)} | k={k_values} | n_eval={n_eval} | {len(languages)} languages")
+
+    # --- Pre-compute draws (ONCE — shared across all checkpoints) ---
+    ref_lang = languages[0]
+    logger.info(f"Loading reference {context_split} split [{ref_lang}]...")
+    ref_ctx_ds = load_dataset("facebook/xnli", ref_lang, split=context_split)
+    ref_eval_size = len(load_dataset("facebook/xnli", ref_lang, split=eval_split))
+
+    by_label = precompute_by_label(ref_ctx_ds)
+
+    logger.info(f"Sampling {n_eval} test indices...")
+    test_indices = sample_test_indices(ref_eval_size, n_eval, seed)
+
+    os.makedirs(output_dir, exist_ok=True)
+    pd.DataFrame([
+        {"draw_i": i, "test_idx": test_indices[i]}
+        for i in range(n_eval)
+    ]).to_csv(os.path.join(output_dir, "test_indices.csv"), index=False)
+
+    logger.info("Pre-computing context draws for all k values...")
+    ctx_draws: dict[int, list[list[int]]] = {k: sample_ctx_for_k(by_label, k, n_eval, seed) for k in k_values}
+
+    logger.info(f"Loading full {context_split} split for all languages...")
+    ctx_datasets = load_full_split(languages, context_split)
+
+    logger.info(f"Loading full {eval_split} split for all languages...")
+    eval_datasets = load_full_split(languages, eval_split)
+
+    # --- Checkpoint loop ---
+    pairs = list(product(languages, repeat=2))
+    logger.info(f"{len(pairs)} language pairs × {len(k_values)} k values = {len(pairs) * len(k_values)} experiments per checkpoint")
+
+    for ckpt_idx, ckpt in enumerate(checkpoints):
+        label = ckpt_label(ckpt)
+        logger.info(
+            f"\n{'='*60}\n"
+            f"Checkpoint {ckpt_idx + 1}/{len(checkpoints)}: {label}\n"
+            f"{'='*60}"
+        )
+
+        # Skip if this checkpoint is fully done.
+        pred_path = os.path.join(output_dir, f"{model_name}_{label}_predictions.csv")
+        if os.path.exists(pred_path):
+            existing_df = pd.read_csv(pred_path)
+            done_set = {(r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in existing_df.to_dict(orient="records")}
+            already_done = sum(
+                1 for k in k_values for src_lang, tgt_lang in pairs
+                if len({t[0] for t in done_set if t[1:] == (k, src_lang, tgt_lang)}) == n_eval
+            )
+            if already_done == len(k_values) * len(pairs):
+                logger.info(f"Checkpoint {label}: all experiments complete, skipping model load.")
+                continue
+
+        logger.info(f"Loading model (revision={label!r})...")
+        llm = load_model(model_path, revision=ckpt, seed=seed, hf_batch_size=hf_batch_size)
+
+        run_checkpoint(
+            llm=llm,
+            label=label,
+            pairs=pairs,
+            k_values=k_values,
+            ctx_draws=ctx_draws,
+            test_indices=test_indices,
+            languages=languages,
+            ctx_datasets=ctx_datasets,
+            eval_datasets=eval_datasets,
+            n_eval=n_eval,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            seed=seed,
+            output_dir=output_dir,
+            model_name=model_name,
+        )
+
+        logger.info(f"Unloading model for checkpoint {label}...")
+        unload_model(llm)
+
+    logger.info(f"\nAll checkpoints done. Results in {output_dir}/")
 
 
 if __name__ == "__main__":
