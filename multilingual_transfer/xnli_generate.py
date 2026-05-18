@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 from itertools import product
 from dataclasses import dataclass
-from typing import Iterator
 from datasets import load_dataset
 from vllm import LLM, SamplingParams
 from dotenv import load_dotenv
@@ -130,7 +129,7 @@ def load_full_split(languages: list[str], split: str) -> dict[str, list[dict]]:
     data: dict[str, list[dict]] = {}
     for lang in languages:
         logger.info(f"  Loading {split} [{lang}]...")
-        ds = load_dataset("facebook/xnli", lang, split=split, trust_remote_code=True)
+        ds = load_dataset("facebook/xnli", lang, split=split)
         data[lang] = [dict(ex) for ex in ds]
     return data
 
@@ -162,7 +161,7 @@ class HFModel:
         self.seed = seed
         self.batch_size = batch_size
 
-    def generate(self, prompts: list[str], sampling_params=None) -> list[_RequestOutput]:
+    def generate(self, prompts: list[str], sampling_params=None, **kwargs) -> list[_RequestOutput]:
         import torch
         temperature = sampling_params.temperature if sampling_params else 0.0
         max_new_tokens = sampling_params.max_tokens if sampling_params else 16
@@ -210,11 +209,11 @@ def generate_completions(
 ) -> list[str]:
     """Raw text completion — no chat template applied."""
     sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
-    outputs = llm.generate(prompts, sampling_params)
+    outputs = llm.generate(prompts, sampling_params, use_tqdm=False)
     return [o.outputs[0].text for o in outputs]
 
 
-def iter_pair_rows(
+def generate_pair_rows(
     llm: LLM | HFModel,
     src_lang: str,
     tgt_lang: str,
@@ -226,50 +225,46 @@ def iter_pair_rows(
     done_draw_is: set[int],
     temperature: float,
     max_tokens: int,
-    chunk_size: int,
     seed: int,
-) -> Iterator[list[dict]]:
-    """Yield one list of new result rows per chunk for a single (src_lang, tgt_lang, k)."""
+) -> list[dict]:
+    """Return all result rows for a single (src_lang, tgt_lang, k), passing all prompts to the model at once."""
     pending = [(i, draws[i]) for i in range(len(draws)) if i not in done_draw_is]
     if not pending:
-        return
+        return []
 
-    for chunk_start in range(0, len(pending), chunk_size):
-        chunk = pending[chunk_start : chunk_start + chunk_size]
+    prompts = []
+    for draw_i, (ctx_indices, test_idx) in pending:
+        # Slice to k for balance, then shuffle to remove the interleaved label pattern.
+        # Seed is unique per (draw, k, src_lang) so order is deterministic.
+        sliced = list(ctx_indices[:k])
+        np.random.default_rng(seed + 2 + draw_i * 10000 + k * 1000 + src_lang_idx).shuffle(sliced)
+        ctx_examples = [ctx_datasets[src_lang][j] for j in sliced]
+        test_example = eval_datasets[tgt_lang][test_idx]
+        prompts.append(build_icl_prompt(ctx_examples, test_example))
 
-        prompts = []
-        for draw_i, (ctx_indices, test_idx) in chunk:
-            # Slice to k for balance, then shuffle to remove the interleaved label pattern.
-            # Seed is unique per (draw, k, src_lang) so order is deterministic.
-            sliced = list(ctx_indices[:k])
-            np.random.default_rng(seed + 2 + draw_i * 10000 + k * 1000 + src_lang_idx).shuffle(sliced)
-            ctx_examples = [ctx_datasets[src_lang][j] for j in sliced]
-            test_example = eval_datasets[tgt_lang][test_idx]
-            prompts.append(build_icl_prompt(ctx_examples, test_example))
+    responses = generate_completions(llm, prompts, temperature=temperature, max_tokens=max_tokens)
+    predicted_ids = [parse_label(r) for r in responses]
 
-        responses = generate_completions(llm, prompts, temperature=temperature, max_tokens=max_tokens)
-        predicted_ids = [parse_label(r) for r in responses]
-
-        rows = []
-        for (draw_i, (ctx_indices, test_idx)), prompt, response, predicted_id in zip(chunk, prompts, responses, predicted_ids):
-            test_example = eval_datasets[tgt_lang][test_idx]
-            rows.append({
-                "draw_i": draw_i,
-                "k": k,
-                "src_lang": src_lang,
-                "tgt_lang": tgt_lang,
-                "test_idx": test_idx,
-                "premise": test_example["premise"],
-                "hypothesis": test_example["hypothesis"],
-                "gold_label": LABEL_MAP[test_example["label"]],
-                "gold_label_id": test_example["label"],
-                "prompt": prompt,
-                "response": response,
-                "predicted_label": LABEL_MAP.get(predicted_id, "unknown"),
-                "predicted_label_id": predicted_id,
-                "correct": predicted_id == test_example["label"],
-            })
-        yield rows
+    rows = []
+    for (draw_i, (ctx_indices, test_idx)), prompt, response, predicted_id in zip(pending, prompts, responses, predicted_ids):
+        test_example = eval_datasets[tgt_lang][test_idx]
+        rows.append({
+            "draw_i": draw_i,
+            "k": k,
+            "src_lang": src_lang,
+            "tgt_lang": tgt_lang,
+            "test_idx": test_idx,
+            "premise": test_example["premise"],
+            "hypothesis": test_example["hypothesis"],
+            "gold_label": LABEL_MAP[test_example["label"]],
+            "gold_label_id": test_example["label"],
+            "prompt": prompt,
+            "response": response,
+            "predicted_label": LABEL_MAP.get(predicted_id, "unknown"),
+            "predicted_label_id": predicted_id,
+            "correct": predicted_id == test_example["label"],
+        })
+    return rows
 
 
 def main():
@@ -289,7 +284,6 @@ def main():
     max_tokens = gen.get("max_tokens", 16)
     seed = gen.get("seed", 42)
     hf_batch_size = gen.get("hf_batch_size", 8)
-    chunk_size = gen.get("chunk_size", 64)
     icl = config.get("icl", {})
     k_raw = icl.get("k", 4)
     k_values: list[int] = k_raw if isinstance(k_raw, list) else [k_raw]
@@ -305,8 +299,8 @@ def main():
     # Labels are identical across all XNLI languages, so any language works.
     ref_lang = languages[0]
     logger.info(f"Loading reference {context_split} split [{ref_lang}]...")
-    ref_ctx_ds = load_dataset("facebook/xnli", ref_lang, split=context_split, trust_remote_code=True)
-    ref_eval_size = len(load_dataset("facebook/xnli", ref_lang, split=eval_split, trust_remote_code=True))
+    ref_ctx_ds = load_dataset("facebook/xnli", ref_lang, split=context_split)
+    ref_eval_size = len(load_dataset("facebook/xnli", ref_lang, split=eval_split))
 
     by_label = precompute_by_label(ref_ctx_ds)
 
@@ -362,26 +356,24 @@ def main():
             else:
                 logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] Starting ({n_pending} draws).")
 
-            completed = 0
-            for chunk_rows in iter_pair_rows(
+            pair_rows = generate_pair_rows(
                 llm, src_lang, tgt_lang, src_lang_idx, k,
                 draws, ctx_datasets, eval_datasets,
-                done_draw_is, temperature, max_tokens, chunk_size, seed,
-            ):
-                for row in chunk_rows:
-                    gen_rows.append({
-                        "draw_i": row["draw_i"], "k": row["k"],
-                        "src_lang": row["src_lang"], "tgt_lang": row["tgt_lang"],
-                        "test_idx": row["test_idx"], "prompt": row.pop("prompt"),
-                        "response": row["response"], "gold_label_id": row["gold_label_id"],
-                    })
-                all_rows.extend(chunk_rows)
-                done_set.update((r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in chunk_rows)
-                completed += len(chunk_rows)
-                pd.DataFrame(all_rows).to_csv(pred_path, index=False)
-                with open(gen_path, "w") as f:
-                    json.dump(gen_rows, f, ensure_ascii=False, indent=2)
-                logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{completed}/{n_pending}] saved.")
+                done_draw_is, temperature, max_tokens, seed,
+            )
+            for row in pair_rows:
+                gen_rows.append({
+                    "draw_i": row["draw_i"], "k": row["k"],
+                    "src_lang": row["src_lang"], "tgt_lang": row["tgt_lang"],
+                    "test_idx": row["test_idx"], "prompt": row.pop("prompt"),
+                    "response": row["response"], "gold_label_id": row["gold_label_id"],
+                })
+            all_rows.extend(pair_rows)
+            done_set.update((r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in pair_rows)
+            pd.DataFrame(all_rows).to_csv(pred_path, index=False)
+            with open(gen_path, "w") as f:
+                json.dump(gen_rows, f, ensure_ascii=False, indent=2)
+            logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{len(pair_rows)}/{n_pending}] saved.")
 
     pred_df = pd.DataFrame(all_rows)
 
