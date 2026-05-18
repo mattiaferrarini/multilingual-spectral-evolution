@@ -102,27 +102,23 @@ def _sample_one_balanced_context(by_label: dict[int, list[int]], max_k: int, rng
     return indices[:max_k]
 
 
-def sample_draws(
-    by_label: dict[int, list[int]],
-    eval_size: int,
-    max_k: int,
-    n_eval: int,
-    seed: int,
-) -> list[tuple[list[int], int]]:
-    """
-    Pre-generate n_eval independent (ctx_indices, test_idx) draws.
-    ctx_indices: max_k validation indices sampled with balanced labels (without replacement per draw).
-    test_idx: one test set index sampled i.i.d. across draws.
-    Separate RNG streams for context and eval keep them independent.
-    """
-    rng_ctx = np.random.default_rng(seed)
+def sample_test_indices(eval_size: int, n_eval: int, seed: int) -> list[int]:
+    """Sample n_eval test indices i.i.d. with replacement."""
     rng_eval = np.random.default_rng(seed + 1)
-    draws = []
-    for _ in range(n_eval):
-        ctx_indices = _sample_one_balanced_context(by_label, max_k, rng_ctx) if max_k > 0 else []
-        test_idx = int(rng_eval.integers(0, eval_size))
-        draws.append((ctx_indices, test_idx))
-    return draws
+    return [int(rng_eval.integers(0, eval_size)) for _ in range(n_eval)]
+
+
+def sample_ctx_for_k(by_label: dict[int, list[int]], k: int, n_eval: int, seed: int) -> list[list[int]]:
+    """
+    Sample n_eval balanced context index lists of length k, using a k-specific RNG.
+    Seeding per k makes draws independent across k values: adding a new k does not
+    shift the RNG state for any existing k.
+    """
+    rng_ctx = np.random.default_rng(seed + 2 + k)
+    return [
+        _sample_one_balanced_context(by_label, k, rng_ctx) if k > 0 else []
+        for _ in range(n_eval)
+    ]
 
 
 def load_full_split(languages: list[str], split: str) -> dict[str, list[dict]]:
@@ -233,17 +229,23 @@ def generate_pair_rows(
     if not pending:
         return []
 
+    t0 = time.monotonic()
     prompts = []
     for draw_i, (ctx_indices, test_idx) in pending:
         # Slice to k for balance, then shuffle to remove the interleaved label pattern.
         # Seed is unique per (draw, k, src_lang) so order is deterministic.
-        sliced = list(ctx_indices[:k])
+        sliced = list(ctx_indices)
         np.random.default_rng(seed + 2 + draw_i * 10000 + k * 1000 + src_lang_idx).shuffle(sliced)
         ctx_examples = [ctx_datasets[src_lang][j] for j in sliced]
         test_example = eval_datasets[tgt_lang][test_idx]
         prompts.append(build_icl_prompt(ctx_examples, test_example))
+    logger.debug(f"    [timing] prompt build:  {time.monotonic() - t0:.2f}s")
 
+    t0 = time.monotonic()
     responses = generate_completions(llm, prompts, temperature=temperature, max_tokens=max_tokens)
+    logger.debug(f"    [timing] inference:     {time.monotonic() - t0:.2f}s")
+
+    t0 = time.monotonic()
     predicted_ids = [parse_label(r) for r in responses]
 
     rows = []
@@ -265,6 +267,7 @@ def generate_pair_rows(
             "predicted_label_id": predicted_id,
             "correct": predicted_id == test_example["label"],
         })
+    logger.debug(f"    [timing] postprocess:   {time.monotonic() - t0:.2f}s")
     return rows
 
 
@@ -288,7 +291,6 @@ def main():
     icl = config.get("icl", {})
     k_raw = icl.get("k", 4)
     k_values: list[int] = k_raw if isinstance(k_raw, list) else [k_raw]
-    max_k = max(k_values) if k_values else 0
     n_eval = icl.get("n_eval", 500)
     context_split = icl.get("context_split", "validation")
     eval_split = icl.get("eval_split", "test")
@@ -305,14 +307,14 @@ def main():
 
     by_label = precompute_by_label(ref_ctx_ds)
 
-    logger.info(f"Sampling {n_eval} draws (max_k={max_k})...")
-    draws = sample_draws(by_label, ref_eval_size, max_k, n_eval, seed)
+    logger.info(f"Sampling {n_eval} test indices...")
+    test_indices = sample_test_indices(ref_eval_size, n_eval, seed)
 
     os.makedirs(output_dir, exist_ok=True)
     pd.DataFrame([
-        {"draw_i": i, "ctx_indices": str(d[0]), "test_idx": d[1]}
-        for i, d in enumerate(draws)
-    ]).to_csv(os.path.join(output_dir, "draws.csv"), index=False)
+        {"draw_i": i, "test_idx": test_indices[i]}
+        for i in range(n_eval)
+    ]).to_csv(os.path.join(output_dir, "test_indices.csv"), index=False)
 
     logger.info(f"Loading full {context_split} split for all languages...")
     ctx_datasets = load_full_split(languages, context_split)
@@ -327,20 +329,13 @@ def main():
     logger.info(f"{len(pairs)} language pairs × {len(k_values)} k values = {len(pairs) * len(k_values)} experiments")
 
     pred_path = os.path.join(output_dir, f"{model_name}_predictions.csv")
-    gen_path = os.path.join(output_dir, f"{model_name}_generations.json")
+    gen_path = os.path.join(output_dir, f"{model_name}_generations.jsonl")
     if os.path.exists(pred_path):
-        all_rows = pd.read_csv(pred_path).to_dict(orient="records")
-        logger.info(f"Resuming from {len(all_rows)} existing rows in {pred_path}")
+        existing_df = pd.read_csv(pred_path)
+        done_set: set[tuple] = {(r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in existing_df.to_dict(orient="records")}
+        logger.info(f"Resuming from {len(existing_df)} existing rows in {pred_path}")
     else:
-        all_rows = []
-    if os.path.exists(gen_path) and os.path.exists(pred_path):
-        with open(gen_path) as f:
-            gen_rows = json.load(f)
-        logger.info(f"Loaded {len(gen_rows)} existing generation records from {gen_path}")
-    else:
-        gen_rows = []
-
-    done_set: set[tuple] = {(r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in all_rows}
+        done_set = set()
 
     total_experiments = len(k_values) * len(pairs)
     completed_experiments = sum(
@@ -350,6 +345,8 @@ def main():
     loop_start = time.monotonic()
 
     for k in k_values:
+        ctx_for_k = sample_ctx_for_k(by_label, k, n_eval, seed)
+        draws_k = list(zip(ctx_for_k, test_indices))
         for src_lang, tgt_lang in pairs:
             src_lang_idx = languages.index(src_lang)
             done_draw_is = {t[0] for t in done_set if t[1:] == (k, src_lang, tgt_lang)}
@@ -364,21 +361,25 @@ def main():
 
             pair_rows = generate_pair_rows(
                 llm, src_lang, tgt_lang, src_lang_idx, k,
-                draws, ctx_datasets, eval_datasets,
+                draws_k, ctx_datasets, eval_datasets,
                 done_draw_is, temperature, max_tokens, seed,
             )
+            t0 = time.monotonic()
+            write_header = not os.path.exists(pred_path)
+            gen_records = []
             for row in pair_rows:
-                gen_rows.append({
+                gen_records.append({
                     "draw_i": row["draw_i"], "k": row["k"],
                     "src_lang": row["src_lang"], "tgt_lang": row["tgt_lang"],
                     "test_idx": row["test_idx"], "prompt": row.pop("prompt"),
                     "response": row["response"], "gold_label_id": row["gold_label_id"],
                 })
-            all_rows.extend(pair_rows)
+            pd.DataFrame(pair_rows).to_csv(pred_path, mode="a", header=write_header, index=False)
+            with open(gen_path, "a") as f:
+                for rec in gen_records:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            logger.debug(f"    [timing] file write:    {time.monotonic() - t0:.2f}s")
             done_set.update((r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in pair_rows)
-            pd.DataFrame(all_rows).to_csv(pred_path, index=False)
-            with open(gen_path, "w") as f:
-                json.dump(gen_rows, f, ensure_ascii=False, indent=2)
 
             completed_experiments += 1
             elapsed = time.monotonic() - loop_start
@@ -390,7 +391,7 @@ def main():
             acc = sum(r["correct"] for r in pair_rows) / len(pair_rows) if pair_rows else float("nan")
             logger.info(f"  [k={k}] [{src_lang}→{tgt_lang}] [{len(pair_rows)}/{n_pending}] acc={acc:.3f} saved. ETA: {eta_str} ({completed_experiments}/{total_experiments})")
 
-    pred_df = pd.DataFrame(all_rows)
+    pred_df = pd.read_csv(pred_path)
 
     summary_df = (
         pred_df[pred_df["predicted_label_id"].notna()]
