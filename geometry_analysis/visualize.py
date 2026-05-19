@@ -166,34 +166,27 @@ def _curve_turning_point(xs, ys, min_x=None):
     return xs_arr[idx], arr[idx]
 
 
-def _early_ascent_point(subset, checkpoints, layer_nums, metric):
-    """Find the valley layer (minimum in early layers) where the profile starts rising."""
-    x = [layer_num(l) for l in layer_nums]
-    n = len(layer_nums)
+def _global_turning_point(subset, checkpoints, layer_nums, metric):
+    best_point = None
+    best_value = None
 
-    arrays = []
     for ckpt in checkpoints:
         vals = (
             subset[subset["checkpoint"] == ckpt]
             .set_index("layer")
             .reindex(layer_nums)[metric]
-            .to_numpy(dtype=float)
+            .to_numpy()
         )
-        arrays.append(vals)
+        finite = np.isfinite(vals)
+        if not finite.any():
+            continue
+        idx = int(np.nanargmax(vals))
+        value = float(vals[idx])
+        if best_value is None or value > best_value:
+            best_value = value
+            best_point = (float(layer_num(layer_nums[idx])), ckpt, value)
 
-    if not arrays:
-        return None
-
-    mean_vals = np.nanmean(np.array(arrays), axis=0)
-
-    # Search in the first third of layers (min 8) for the valley
-    search_end = min(n, max(8, n // 3))
-    candidates = [(i, v) for i, v in enumerate(mean_vals[:search_end]) if np.isfinite(v)]
-    if not candidates:
-        return None
-
-    min_i, min_v = min(candidates, key=lambda t: t[1])
-    return (float(x[min_i]), checkpoints[0] if checkpoints else "unknown", float(min_v))
+    return best_point
 
 
 def _save(fig, path):
@@ -404,7 +397,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                     )
                     compressed_turning_point = _curve_turning_point(x, main_vals, min_x=3)
 
-                early_turning_point = _early_ascent_point(subset, checkpoints, layer_nums, metric)
+                early_turning_point = _global_turning_point(subset, checkpoints, layer_nums, metric)
 
                 turning_point_handles = []
                 early_line_color = "#0072B2"  # Professional blue
@@ -424,7 +417,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
                                alpha=0.85, zorder=0)
                     turning_point_handles.append(
                         Line2D([0], [0], color=early_line_color, linestyle=(0, (6, 4)), linewidth=1.4,
-                               label="Early ascent (valley)")
+                               label=f"Early training turning point ({early_ckpt})")
                     )
                 if compressed_turning_point is not None:
                     compressed_x, _ = compressed_turning_point
@@ -473,7 +466,7 @@ def plot_layer_profiles(df, metrics, languages, layers, aggregations, output_dir
 
                 if early_turning_point is not None:
                     early_x, early_ckpt, early_val = early_turning_point
-                    plot_data["turning_points"]["early_ascent"] = {
+                    plot_data["turning_points"]["early_training"] = {
                         "layer": float(early_x),
                         "checkpoint": str(early_ckpt),
                         "value": float(early_val),
