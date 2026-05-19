@@ -25,7 +25,7 @@ GASPAR="${GASPAR:-}"                       # Define it in .env
 GROUP="${GROUP:-g33}"                      # Define in .env or default here
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"       # Define it in .env
 REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
-CONFIG_PATH="multilingual_transfer/configs/xnli.yaml"
+CONFIG_PATH="multilingual_transfer/configs/xnli_fuxi.yaml"
 # ==============================================
 
 # Edit this for your project. Keep outputs/checkpoints under /scratch.
