@@ -10,6 +10,7 @@ For each of n_eval independent draws:
 
 All checkpoints are evaluated on the identical context and test draws (pre-computed once).
 One predictions CSV and one generations JSONL are saved per checkpoint.
+Premise/hypothesis text and full prompts are not stored; use test_idx + tgt_lang/src_lang to reconstruct from XNLI.
 
 Usage: python xnli_generate.py --config multilingual_transfer/configs/xnli.yaml
 """
@@ -313,8 +314,6 @@ def generate_pair_rows(
             "src_lang": src_lang,
             "tgt_lang": tgt_lang,
             "test_idx": test_idx,
-            "premise": test_example["premise"],
-            "hypothesis": test_example["hypothesis"],
             "gold_label": LABEL_MAP[test_example["label"]],
             "gold_label_id": test_example["label"],
             "prompt": prompt,
@@ -384,18 +383,17 @@ def run_checkpoint(
             )
             t0 = time.monotonic()
             write_header = not os.path.exists(pred_path)
-            gen_records = []
             for row in pair_rows:
-                gen_records.append({
-                    "draw_i": row["draw_i"], "k": row["k"],
-                    "src_lang": row["src_lang"], "tgt_lang": row["tgt_lang"],
-                    "test_idx": row["test_idx"], "prompt": row.pop("prompt"),
-                    "response": row["response"], "gold_label_id": row["gold_label_id"],
-                })
+                row.pop("prompt")
             pd.DataFrame(pair_rows).to_csv(pred_path, mode="a", header=write_header, index=False)
             with open(gen_path, "a") as f:
-                for rec in gen_records:
-                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                for row in pair_rows:
+                    f.write(json.dumps({
+                        "draw_i": row["draw_i"], "k": row["k"],
+                        "src_lang": row["src_lang"], "tgt_lang": row["tgt_lang"],
+                        "test_idx": row["test_idx"], "response": row["response"],
+                        "gold_label_id": row["gold_label_id"],
+                    }, ensure_ascii=False) + "\n")
             logger.debug(f"    [timing] file write:    {time.monotonic() - t0:.2f}s")
             done_set.update((r["draw_i"], r["k"], r["src_lang"], r["tgt_lang"]) for r in pair_rows)
 
