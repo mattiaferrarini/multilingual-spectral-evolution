@@ -559,6 +559,8 @@ def plot_fitted_laws(
         If given, save the figure to this path instead of showing it.
     """
     import matplotlib.pyplot as plt
+    import numpy as np
+    import os
 
     three_phase = "t_change2" in params_df.columns
     per_language_ac = "beta" not in params_df.columns
@@ -672,6 +674,7 @@ def plot_fitted_laws(
         ax.set_title(f"{lang}  R²={row.r2:.3f}", fontsize=9)
         ax.set_xlabel("Tokens (B)", fontsize=8)
         ax.set_ylabel(metric, fontsize=8)
+        ax.set_xlim(t_min_all, t_max_all)
         ax.tick_params(labelsize=7)
 
     for j in range(len(languages), len(axes.flat)):
