@@ -14,6 +14,9 @@ import seaborn as sns
 
 sns.set_theme(style="whitegrid", font_scale=1.1)
 
+COLOR_ENTROPY_SEEKING = "tomato"
+COLOR_COMPRESSION_SEEKING = "steelblue"
+
 METRIC_LABELS = {
     "rankme": "RankMe",
     "pr": "Participation Ratio",
@@ -230,7 +233,7 @@ def _shade_segments(ax, consensus_bps, smoothed_matrix, xs_common, left_x, tick_
         seg = mean_smoothed[idx_lo:idx_hi + 1]
         seg = seg[~np.isnan(seg)]
         increasing = _segment_is_increasing(seg, use_derivative=use_derivative)
-        ax.axvspan(x_lo, x_hi, color="steelblue" if increasing else "tomato", alpha=0.15, zorder=0)
+        ax.axvspan(x_lo, x_hi, color=COLOR_ENTROPY_SEEKING if increasing else COLOR_COMPRESSION_SEEKING, alpha=0.15, zorder=0)
     for bp in consensus_bps:
         ax.axvline(bp, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
     from matplotlib.lines import Line2D
@@ -238,8 +241,8 @@ def _shade_segments(ax, consensus_bps, smoothed_matrix, xs_common, left_x, tick_
         str(int(bp)) if bp == int(bp) else str(bp) for bp in consensus_bps
     )
     ax.legend(handles=[
-        Patch(facecolor="steelblue", alpha=0.3, label="Entropy seeking"),
-        Patch(facecolor="tomato", alpha=0.3, label="Compression seeking"),
+        Patch(facecolor=COLOR_ENTROPY_SEEKING, alpha=0.3, label="Entropy seeking"),
+        Patch(facecolor=COLOR_COMPRESSION_SEEKING, alpha=0.3, label="Compression seeking"),
         Line2D([0], [0], color="black", linestyle="--", linewidth=1.5, alpha=0.7,
                label=f"Changepoints: {cp_labels} B"),
     ], fontsize=11, loc="upper right")
