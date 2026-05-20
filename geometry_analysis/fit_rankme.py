@@ -30,15 +30,20 @@ T_CHANGE_FIXED = 241.0  # billions of tokens (default changepoint)
 
 
 def parse_checkpoint(s: str) -> float | None:
-    m = re.match(r"^(\d+(?:\.\d+)?)([BM]?)$", str(s))
-    if not m:
-        return None
-    v, unit = float(m.group(1)), m.group(2)
-    if unit == "B":
+    # plain numeric: "210B", "10.5B", "500M"
+    m = re.match(r"^(\d+(?:\.\d+)?)([BMT]?)$", str(s), re.IGNORECASE)
+    if m:
+        v, unit = float(m.group(1)), m.group(2).upper()
+        if unit == "B": return v
+        if unit == "M": return v / 1_000.0
+        if unit == "T": return v * 1_000.0
         return v
-    if unit == "M":
-        return v / 1_000.0
-    return v
+    # Apertus format: step{N}-tokens{M}[BT]
+    m = re.match(r"step\d+-tokens(\d+(?:\.\d+)?)([BT])", str(s), re.IGNORECASE)
+    if m:
+        v, unit = float(m.group(1)), m.group(2).upper()
+        return v * 1_000.0 if unit == "T" else v
+    return None
 
 
 # ---- Model 1: shared A, γ, C, λ (and optionally t_change) ----
@@ -86,9 +91,9 @@ def fit_per_language_ac(t_vals: np.ndarray, R_vals: np.ndarray, gamma: float, la
 
 # ---- Optimization objective ----
 
-def total_sse(shared_params, t_by_lang, R_by_lang, fix_t_change: bool, per_language_ac: bool) -> float:
+def total_sse(shared_params, t_by_lang, R_by_lang, fix_t_change: bool, per_language_ac: bool, t_change_fixed: float = T_CHANGE_FIXED) -> float:
     if fix_t_change:
-        core, t_change = shared_params, T_CHANGE_FIXED
+        core, t_change = shared_params, t_change_fixed
     else:
         *core, t_change = shared_params
         core = tuple(core)
@@ -126,13 +131,19 @@ def fit_model(
     fix_t_change: bool,
     per_language_ac: bool,
     seed: int = 0,
+    t_change_value: float | None = None,
 ) -> tuple:
     """
     Optimise shared parameters via differential evolution (global), then refine.
     Returns (core_params_tuple, t_change, result).
+
+    t_change_value: explicit fixed changepoint (B tokens) when fix_t_change=True.
+        Defaults to T_CHANGE_FIXED when None.
     """
     t_all = np.concatenate(list(t_by_lang.values()))
     t_min, t_max = t_all.min(), t_all.max()
+
+    _t_change_fixed = t_change_value if (fix_t_change and t_change_value is not None) else T_CHANGE_FIXED
 
     if per_language_ac:
         bounds_core = [
@@ -146,13 +157,13 @@ def fit_model(
             (-1e10, 1e10),          # C (amplitude; sign unconstrained)
             (0.01, t_max - t_min),  # λ: scale in B tokens
         ]
-        
+
     bounds = bounds_core if fix_t_change else bounds_core + [(t_min + 1.0, t_max - 1.0)]
 
     result = differential_evolution(
         total_sse,
         bounds=bounds,
-        args=(t_by_lang, R_by_lang, fix_t_change, per_language_ac),
+        args=(t_by_lang, R_by_lang, fix_t_change, per_language_ac, _t_change_fixed),
         seed=seed,
         maxiter=2000,
         tol=1e-10,
@@ -165,12 +176,212 @@ def fit_model(
 
     if fix_t_change:
         core = tuple(result.x)
-        t_change = T_CHANGE_FIXED
+        t_change = _t_change_fixed
     else:
         *core_list, t_change = result.x
         core = tuple(core_list)
 
     return core, t_change, result
+
+
+# ---- Public notebook API ----
+
+def fit_rankme_from_df(
+    df: pd.DataFrame,
+    layer: str,
+    aggregation: str,
+    t_change: float | None = None,
+    per_language_ac: bool = False,
+    metric: str = "rankme",
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Fit the piecewise model to *df* and return fitted parameters as a DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Metrics CSV loaded into a DataFrame (columns: checkpoint, dataset,
+        layer, aggregation, <metric>, ...).  Both Fuxi ("210B") and Apertus
+        ("step50000-tokens210B") checkpoint formats are supported.
+    layer : str
+        Layer to fit, e.g. ``"layer_29"``.
+    aggregation : str
+        Aggregation method: ``"last"`` or ``"mean"``.
+    t_change : float | None
+        Changepoint in billions of tokens.  ``None`` → estimated from data.
+    per_language_ac : bool
+        If True, A and C are per-language while γ and λ are shared.
+    metric : str
+        Response column (default: ``"rankme"``).
+    seed : int
+        Random seed for differential evolution.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per language, with metadata columns (layer, aggregation,
+        language, t_change) followed by parameter columns:
+
+        * shared model (default):      A, gamma, C, lam, alpha, beta, r2, sse
+        * per-language-AC model:       gamma, lam, alpha, A, C, r2, sse
+    """
+    work = df.copy()
+    work["t"] = work["checkpoint"].apply(parse_checkpoint)
+    work = work.dropna(subset=["t", metric])
+
+    mask = (work["layer"] == layer) & (work["aggregation"] == aggregation)
+    subset = work[mask].copy()
+    if subset.empty:
+        raise ValueError(f"No data for layer={layer!r}, aggregation={aggregation!r}")
+
+    languages = sorted(subset["dataset"].unique())
+    t_by_lang: dict[str, np.ndarray] = {}
+    R_by_lang: dict[str, np.ndarray] = {}
+    for lang in languages:
+        sub = subset[subset["dataset"] == lang].sort_values("t")
+        t_by_lang[lang] = sub["t"].values.astype(float)
+        R_by_lang[lang] = sub[metric].values.astype(float)
+
+    fix_t_change = t_change is not None
+    core, t_change_fit, _ = fit_model(
+        t_by_lang, R_by_lang,
+        fix_t_change=fix_t_change,
+        per_language_ac=per_language_ac,
+        seed=seed,
+        t_change_value=t_change,
+    )
+
+    rows = []
+    for lang in languages:
+        R_mean = R_by_lang[lang].mean()
+        ss_tot = float(np.sum((R_by_lang[lang] - R_mean) ** 2))
+
+        if per_language_ac:
+            gamma, lam = core
+            alpha, A, C, sse = fit_per_language_ac(
+                t_by_lang[lang], R_by_lang[lang], gamma, lam, t_change_fit)
+            r2 = 1.0 - sse / ss_tot if ss_tot > 0 else float("nan")
+            rows.append(dict(
+                layer=layer, aggregation=aggregation, language=lang,
+                t_change=t_change_fit, gamma=gamma, lam=lam,
+                alpha=alpha, A=A, C=C, r2=r2, sse=sse,
+            ))
+        else:
+            A_sh, gamma, C_sh, lam = core
+            f_vals = _apply_f(t_by_lang[lang], core, t_change_fit)
+            alpha, beta, sse = fit_per_language(f_vals, R_by_lang[lang])
+            r2 = 1.0 - sse / ss_tot if ss_tot > 0 else float("nan")
+            rows.append(dict(
+                layer=layer, aggregation=aggregation, language=lang,
+                t_change=t_change_fit, A=A_sh, gamma=gamma, C=C_sh, lam=lam,
+                alpha=alpha, beta=beta, r2=r2, sse=sse,
+            ))
+
+    return pd.DataFrame(rows)
+
+
+def plot_fitted_laws(
+    params_df: pd.DataFrame,
+    df: pd.DataFrame,
+    metric: str = "rankme",
+    output_path: str | None = None,
+) -> None:
+    """Plot data points and fitted curves for every language in *params_df*.
+
+    Parameters
+    ----------
+    params_df : pd.DataFrame
+        Output of :func:`fit_rankme_from_df`.
+    df : pd.DataFrame
+        Original metrics DataFrame used to produce *params_df* (needed for
+        raw data points).
+    metric : str
+        Column used as the response variable (default: ``"rankme"``).
+    output_path : str | None
+        If given, save the figure to this path instead of showing it.
+    """
+    import matplotlib.pyplot as plt
+
+    per_language_ac = "beta" not in params_df.columns
+
+    layer = params_df["layer"].iloc[0]
+    aggregation = params_df["aggregation"].iloc[0]
+    t_change = float(params_df["t_change"].iloc[0])
+
+    # shared parameters (same on every row)
+    if per_language_ac:
+        gamma = float(params_df["gamma"].iloc[0])
+        lam   = float(params_df["lam"].iloc[0])
+        core  = (gamma, lam)
+    else:
+        A     = float(params_df["A"].iloc[0])
+        gamma = float(params_df["gamma"].iloc[0])
+        C     = float(params_df["C"].iloc[0])
+        lam   = float(params_df["lam"].iloc[0])
+        core  = (A, gamma, C, lam)
+
+    # raw data from original df
+    work = df.copy()
+    work["t"] = work["checkpoint"].apply(parse_checkpoint)
+    work = work.dropna(subset=["t", metric])
+    subset = work[(work["layer"] == layer) & (work["aggregation"] == aggregation)]
+
+    languages = list(params_df["language"])
+    t_by_lang = {}
+    R_by_lang = {}
+    for lang in languages:
+        sub = subset[subset["dataset"] == lang].sort_values("t")
+        t_by_lang[lang] = sub["t"].values.astype(float)
+        R_by_lang[lang] = sub[metric].values.astype(float)
+
+    t_min_all = min(t.min() for t in t_by_lang.values())
+    t_max_all = max(t.max() for t in t_by_lang.values())
+    t_plot = np.linspace(t_min_all, t_max_all, 600)
+
+    if not per_language_ac:
+        f_plot = _apply_f(t_plot, core, t_change)
+
+    ncols = min(4, len(languages))
+    nrows = (len(languages) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3.5 * nrows), squeeze=False)
+
+    for i, row in enumerate(params_df.itertuples(index=False)):
+        lang = row.language
+        ax = axes.flat[i]
+
+        if per_language_ac:
+            phase1 = np.power(t_plot, -gamma)
+            dt = np.maximum(t_plot - t_change, 0.0)
+            phase2 = np.where(t_plot <= t_change, 0.0, 1.0 - np.exp(-dt / lam))
+            R_pred = row.alpha + row.A * phase1 + row.C * phase2
+        else:
+            R_pred = row.alpha + row.beta * f_plot
+
+        ax.scatter(t_by_lang[lang], R_by_lang[lang], s=18, zorder=5, color="steelblue", label="data")
+        ax.plot(t_plot, R_pred, color="crimson", linewidth=1.5, label="fit")
+        ax.axvline(t_change, color="gray", linestyle="--", linewidth=0.8, alpha=0.7)
+        ax.set_title(f"{lang}  R²={row.r2:.3f}", fontsize=9)
+        ax.set_xlabel("Tokens (B)", fontsize=8)
+        ax.set_ylabel(metric, fontsize=8)
+        ax.tick_params(labelsize=7)
+
+    for j in range(len(languages), len(axes.flat)):
+        axes.flat[j].set_visible(False)
+
+    if per_language_ac:
+        param_str = f"γ={gamma:.3g}  λ={lam:.3g}B  t_change={t_change:.3g}B"
+    else:
+        param_str = f"A={A:.3g}  γ={gamma:.3g}  C={C:.3g}  λ={lam:.3g}B  t_change={t_change:.3g}B"
+    model_tag = "per-lang-AC" if per_language_ac else "shared-AC"
+    fig.suptitle(f"{layer} / {aggregation} / {model_tag}\n{param_str}", fontsize=10)
+    plt.tight_layout()
+
+    if output_path:
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        print(f"Plot saved → {output_path}")
+    else:
+        plt.show()
 
 
 # ---- Main ----

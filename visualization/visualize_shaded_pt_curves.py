@@ -1,10 +1,13 @@
 import argparse
+import math
 import os
 import re
+from collections import Counter
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -22,8 +25,35 @@ METRIC_LABELS = {
     "top_100_var": "Top-100 Variance",
 }
 
-_CURVE_TICKS = [10, 100, 200, 300, 400, 500, 600]
-_MAIN_X = 600
+def _compute_ticks(xs_numeric, tick_step=None):
+    """Return (tick_positions, tick_labels) spanning the data range.
+
+    Always includes the first and last value; intermediate ticks are spaced
+    by tick_step (auto-chosen to give ~6 ticks when None).
+    xs_numeric: sorted list of finite x values (in billions of tokens).
+    """
+    xs = sorted(xs_numeric)
+    if not xs:
+        return [0], ["0"]
+    first, last = xs[0], xs[-1]
+    if first == last:
+        return [first], [str(int(first))]
+
+    if tick_step is None:
+        raw = (last - first) / 5
+        mag = 10 ** math.floor(math.log10(max(raw, 1)))
+        tick_step = max(round(raw / mag) * mag, 1)
+
+    start = math.ceil(first / tick_step) * tick_step
+    intermediates, t = [], start
+    while t < last:
+        if t > first:
+            intermediates.append(float(t))
+        t += tick_step
+
+    positions = sorted(set([first] + intermediates + [last]))
+    labels = [str(int(p)) if p == int(p) else str(p) for p in positions]
+    return positions, labels
 
 
 def _ckpt_key(name):
@@ -96,20 +126,184 @@ def _smooth_on_uniform_grid(xs, ys, sigma):
     return y_smoothed.tolist()
 
 
-def plot_training_curves(df, metrics, languages, layers, aggregations, output_dir, model_label, smoothing=0.0, normalize="none"):
-    checkpoints = _sort_checkpoints(df["checkpoint"].unique())
+def _collect_curve_data(subset, languages, checkpoints, xs_common, metric, smoothing):
+    """Return raw y-values per language, smoothed matrix, and leftmost data x."""
+    raw_ys_per_lang = {}
+    smoothed_matrix = []
+    min_data_x = float("inf")
+    for lang in languages:
+        row = subset[subset["dataset"] == lang].set_index("checkpoint")
+        ys = [row.loc[c, metric] if c in row.index else np.nan for c in checkpoints]
+        raw_ys_per_lang[lang] = ys
+        valid_xs = [x for x, y in zip(xs_common, ys) if not np.isnan(y)]
+        if valid_xs:
+            min_data_x = min(min_data_x, valid_xs[0])
+        if smoothing > 0:
+            smoothed_matrix.append(_smooth_on_uniform_grid(xs_common, ys, smoothing))
+    return raw_ys_per_lang, smoothed_matrix, min_data_x
+
+
+def _find_consensus_breakpoints(smoothed_matrix, xs_common, pen=None):
+    """Find trend reversals as prominent local extrema of the mean smoothed curve.
+
+    Uses scipy peak prominence to distinguish real reversals from noise-induced
+    wiggles.  *pen* is the minimum required prominence in the same units as the
+    metric (default: 15 % of the curve's value range).  Raise it to get fewer
+    breakpoints; lower it to get more.
+    """
+    from scipy.signal import find_peaks
+
+    if not smoothed_matrix:
+        return []
+
+    xs_arr = np.array(xs_common)
+    mean_curve = np.nanmean(np.array(smoothed_matrix, dtype=float), axis=0)
+    valid_mask = ~np.isnan(mean_curve)
+    if valid_mask.sum() < 5:
+        return []
+
+    valid_xs = xs_arr[valid_mask]
+    valid_s = mean_curve[valid_mask]
+    n = len(valid_s)
+
+    prominence = pen if pen is not None else np.ptp(valid_s) * 0.15
+    min_dist = max(2, n // 10)
+
+    peaks_max, _ = find_peaks(valid_s, prominence=prominence, distance=min_dist)
+    peaks_min, _ = find_peaks(-valid_s, prominence=prominence, distance=min_dist)
+    extrema_idx = np.sort(np.concatenate([peaks_max, peaks_min]))
+
+    return [min(xs_common, key=lambda x: abs(x - valid_xs[i])) for i in extrema_idx]
+
+
+def _normalize_ys(ys, xs, normalize, consensus_bps):
+    if normalize == "global":
+        return _minmax(ys)
+    if normalize == "per-segment" and consensus_bps:
+        arr = np.array(ys, dtype=float)
+        bp_indices = [xs.index(bp) for bp in consensus_bps if bp in xs]
+        boundaries = [0] + bp_indices + [len(xs)]
+        result = np.full(len(arr), np.nan, dtype=float)
+        for j in range(len(boundaries) - 1):
+            lo, hi = boundaries[j], boundaries[j + 1]
+            result[lo:hi] = _minmax(arr[lo:hi].tolist())
+        return result.tolist()
+    return ys
+
+
+def _plot_lines(ax, languages, raw_ys_per_lang, xs_common, lang_colors, normalize, consensus_bps):
+    """Draw one line per language; return list of (x, y, lang, color) endpoints."""
+    endpoints = []
+    for lang in languages:
+        ys = raw_ys_per_lang[lang]
+        plot_ys = _normalize_ys(ys, xs_common, normalize, consensus_bps)
+        ax.plot(xs_common, plot_ys, color=lang_colors[lang], linewidth=1.5)
+        valid = [(x, y) for x, y in zip(xs_common, plot_ys) if not np.isnan(y)]
+        if valid:
+            endpoints.append((valid[-1][0], valid[-1][1], lang, lang_colors[lang]))
+    return endpoints
+
+
+def _segment_is_increasing(seg, use_derivative=False):
+    """Return True if segment is trending upward.
+
+    use_derivative=True: use the mean of first differences (more robust for
+    noisy or non-monotone segments).  use_derivative=False: compare endpoints.
+    """
+    if len(seg) < 2:
+        return True
+    if use_derivative:
+        return float(np.nanmean(np.diff(seg.astype(float)))) >= 0
+    return seg[-1] >= seg[0]
+
+
+def _shade_segments(ax, consensus_bps, smoothed_matrix, xs_common, left_x, tick_positions, use_derivative=False):
+    """Shade trend segments blue (increasing) / red (decreasing) and add a legend."""
+    if not consensus_bps:
+        return
+    mean_smoothed = np.nanmean(np.array(smoothed_matrix, dtype=float), axis=0)
+    boundaries_x = [left_x] + list(consensus_bps) + [tick_positions[-1]]
+    xs_arr = np.array(xs_common)
+    for x_lo, x_hi in zip(boundaries_x[:-1], boundaries_x[1:]):
+        idx_lo = int(np.argmin(np.abs(xs_arr - x_lo)))
+        idx_hi = int(np.argmin(np.abs(xs_arr - x_hi)))
+        seg = mean_smoothed[idx_lo:idx_hi + 1]
+        seg = seg[~np.isnan(seg)]
+        increasing = _segment_is_increasing(seg, use_derivative=use_derivative)
+        ax.axvspan(x_lo, x_hi, color="steelblue" if increasing else "tomato", alpha=0.15, zorder=0)
+    for bp in consensus_bps:
+        ax.axvline(bp, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
+    from matplotlib.lines import Line2D
+    cp_labels = ", ".join(
+        str(int(bp)) if bp == int(bp) else str(bp) for bp in consensus_bps
+    )
+    ax.legend(handles=[
+        Patch(facecolor="steelblue", alpha=0.3, label="Entropy seeking"),
+        Patch(facecolor="tomato", alpha=0.3, label="Compression seeking"),
+        Line2D([0], [0], color="black", linestyle="--", linewidth=1.5, alpha=0.7,
+               label=f"Changepoints: {cp_labels} B"),
+    ], fontsize=11, loc="upper right")
+
+
+def _annotate_endpoints(ax, endpoints):
+    """Place language labels at curve endpoints, spreading them to avoid overlap."""
+    endpoints.sort(key=lambda t: t[1])
+    label_ys = [t[1] for t in endpoints]
+    y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+    min_gap = y_range * 0.05
+    for _ in range(50):
+        changed = False
+        for i in range(1, len(label_ys)):
+            if label_ys[i] - label_ys[i - 1] < min_gap:
+                mid = (label_ys[i] + label_ys[i - 1]) / 2
+                label_ys[i - 1] = mid - min_gap / 2
+                label_ys[i] = mid + min_gap / 2
+                changed = True
+        if not changed:
+            break
+    y_min, y_max = ax.get_ylim()
+    for (lx, ly, lang, color), label_y in zip(endpoints, label_ys):
+        label_y_frac = (label_y - y_min) / (y_max - y_min)
+        ax.annotate(lang, xy=(lx, ly), xycoords="data",
+                    xytext=(1.04, label_y_frac), textcoords="axes fraction",
+                    color=color, fontsize=12, va="center", clip_on=False,
+                    arrowprops=dict(arrowstyle="-", color=color, lw=1, alpha=0.5, relpos=(0, 0.5)))
+
+
+def _setup_axes(ax, tick_positions, tick_labels, left_x, metric_label, layer, agg, model_label):
+    ax.set_xlim(left=left_x, right=tick_positions[-1])
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, rotation=45, fontsize=12)
+    ax.set_xlabel("Billion of tokens", fontsize=13)
+    ax.set_ylabel(metric_label, fontsize=13)
+    layer_n = _layer_num(layer)
+    title = f"{metric_label} over pretraining - Layer {layer_n} | {agg.capitalize()} aggregation"
+    if model_label:
+        title = f"[{model_label}] " + title
+    ax.set_title(title, fontsize=14)
+    ax.grid(True, linestyle="--", alpha=0.7)
+
+
+def plot_training_curves(df, metrics, languages, layers, aggregations, output_dir, model_label, smoothing=0.0, normalize="none", changepoint_pen=None, tick_step=None, main_value=None):
+    all_checkpoints = _sort_checkpoints(df["checkpoint"].unique())
     lang_colors = _language_colors(languages)
 
-    has_main = any(str(c).lower() == "main" for c in checkpoints)
-    numeric_ckpts = [c for c in checkpoints if str(c).lower() != "main"]
-    max_numeric = max((_ckpt_key(c) for c in numeric_ckpts), default=0)
+    numeric_ckpts = [c for c in all_checkpoints if str(c).lower() != "main"]
+    xs_numeric = sorted(_ckpt_key(c) for c in numeric_ckpts)
+
+    if main_value is not None:
+        main_x = float(main_value)
+        checkpoints = all_checkpoints
+        xs_for_ticks = sorted(xs_numeric + [main_x])
+    else:
+        checkpoints = numeric_ckpts
+        main_x = None
+        xs_for_ticks = xs_numeric
+
+    tick_positions, tick_labels = _compute_ticks(xs_for_ticks, tick_step)
 
     def ckpt_x(c):
-        return _MAIN_X if str(c).lower() == "main" else _ckpt_key(c)
-
-    max_x = max(max_numeric, _MAIN_X if has_main else 0)
-    tick_positions = [t for t in _CURVE_TICKS if t <= max_x + 1]
-    tick_labels = [str(t) for t in tick_positions]
+        return main_x if str(c).lower() == "main" else _ckpt_key(c)
 
     for metric in metrics:
         metric_label = METRIC_LABELS.get(metric, metric)
@@ -120,135 +314,115 @@ def plot_training_curves(df, metrics, languages, layers, aggregations, output_di
                 if subset.empty:
                     continue
 
-                fig, ax = plt.subplots(figsize=(12, 6))
-                endpoints = []
-                min_data_x = float("inf")
-                smoothed_matrix = []
                 xs_common = [ckpt_x(c) for c in checkpoints]
-                raw_ys_per_lang = {}
-
-                for lang in languages:
-                    row = subset[subset["dataset"] == lang].set_index("checkpoint")
-                    ys = [row.loc[c, metric] if c in row.index else np.nan for c in checkpoints]
-                    raw_ys_per_lang[lang] = ys
-                    valid_xs = [x for x, y in zip(xs_common, ys) if not np.isnan(y)]
-                    if valid_xs:
-                        min_data_x = min(min_data_x, valid_xs[0])
-                    if smoothing > 0:
-                        smoothed_matrix.append(_smooth_on_uniform_grid(xs_common, ys, smoothing))
-
+                raw_ys_per_lang, smoothed_matrix, min_data_x = _collect_curve_data(
+                    subset, languages, checkpoints, xs_common, metric, smoothing)
                 left_x = min_data_x if min_data_x < float("inf") else tick_positions[0]
+                consensus_bps = _find_consensus_breakpoints(smoothed_matrix, xs_common, pen=changepoint_pen)
 
-                # compute change point before plotting so per-segment normalization can use it
-                per_lang_cps = []
-                per_lang_is_min = []
-                if smoothing > 0 and smoothed_matrix:
-                    xs_arr = np.array(xs_common)
-                    for smoothed_ys in smoothed_matrix:
-                        s = np.array(smoothed_ys, dtype=float)
-                        valid_idx = [i for i, v in enumerate(s) if not np.isnan(v)]
-                        if len(valid_idx) >= 2:
-                            min_i = min(valid_idx, key=lambda i: s[i])
-                            max_i = max(valid_idx, key=lambda i: s[i])
-
-                            def _deriv_jump(idx):
-                                lefts = [j for j in valid_idx if j < idx]
-                                rights = [j for j in valid_idx if j > idx]
-                                if not lefts or not rights:
-                                    return 0.0
-                                prev_i, next_i = lefts[-1], rights[0]
-                                d_l = (s[idx] - s[prev_i]) / (xs_arr[idx] - xs_arr[prev_i])
-                                d_r = (s[next_i] - s[idx]) / (xs_arr[next_i] - xs_arr[idx])
-                                return abs(d_r - d_l)
-
-                            ext_i = min_i if _deriv_jump(min_i) >= _deriv_jump(max_i) else max_i
-                            is_min = ext_i == min_i
-
-                            lefts = [j for j in valid_idx if j < ext_i]
-                            rights = [j for j in valid_idx if j > ext_i]
-                            if lefts and rights:
-                                prev_i, next_i = lefts[-1], rights[0]
-                                d_left = (s[ext_i] - s[prev_i]) / (xs_arr[ext_i] - xs_arr[prev_i])
-                                d_right = (s[next_i] - s[ext_i]) / (xs_arr[next_i] - xs_arr[ext_i])
-                                denom = abs(d_left) + abs(d_right)
-                                frac = abs(d_left) / denom if denom > 0 else 0.5
-                                x_cross = xs_arr[ext_i] + frac * (xs_arr[next_i] - xs_arr[ext_i])
-                                nearest_cp = min(xs_common, key=lambda x: abs(x - x_cross))
-                            else:
-                                nearest_cp = xs_arr[ext_i]
-                            per_lang_cps.append(nearest_cp)
-                            per_lang_is_min.append(is_min)
-
-                from collections import Counter
-                mode_cp = Counter(per_lang_cps).most_common(1)[0][0] if per_lang_cps else None
-
-                def _apply_normalize(ys, xs):
-                    if normalize == "global":
-                        return _minmax(ys)
-                    if normalize == "per-segment" and mode_cp is not None:
-                        arr = np.array(ys, dtype=float)
-                        cp_idx = xs.index(mode_cp)
-                        pre, post = arr[:cp_idx + 1].copy(), arr[cp_idx:].copy()
-                        result = np.full_like(arr, np.nan)
-                        result[:cp_idx + 1] = _minmax(pre.tolist())
-                        result[cp_idx:] = _minmax(post.tolist())
-                        return result.tolist()
-                    return ys
-
-                for lang in languages:
-                    ys = raw_ys_per_lang[lang]
-                    plot_ys = _apply_normalize(ys, xs_common)
-                    ax.plot(xs_common, plot_ys, color=lang_colors[lang], linewidth=1.5)
-                    valid = [(x, y) for x, y in zip(xs_common, plot_ys) if not np.isnan(y)]
-                    if valid:
-                        endpoints.append((valid[-1][0], valid[-1][1], lang, lang_colors[lang]))
-
-                if mode_cp is not None:
-                    ax.axvspan(left_x, mode_cp, color="steelblue", alpha=0.15, zorder=0)
-                    ax.axvspan(mode_cp, tick_positions[-1], color="tomato", alpha=0.15, zorder=0)
-                    ax.axvline(mode_cp, color="black", linestyle="--", linewidth=1.5, alpha=0.7,
-                               label=f"Change point (mode): {mode_cp:.0f}B")
-                    ax.legend(fontsize=11, loc="upper right")
-
-                # Spread labels vertically to avoid overlap
-                endpoints.sort(key=lambda t: t[1])
-                label_ys = [t[1] for t in endpoints]
-                y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
-                min_gap = y_range * 0.05
-                for _ in range(50):
-                    changed = False
-                    for i in range(1, len(label_ys)):
-                        if label_ys[i] - label_ys[i - 1] < min_gap:
-                            mid = (label_ys[i] + label_ys[i - 1]) / 2
-                            label_ys[i - 1] = mid - min_gap / 2
-                            label_ys[i] = mid + min_gap / 2
-                            changed = True
-                    if not changed:
-                        break
-
-                y_min, y_max = ax.get_ylim()
-                for (lx, ly, lang, color), label_y in zip(endpoints, label_ys):
-                    label_y_frac = (label_y - y_min) / (y_max - y_min)
-                    ax.annotate(lang, xy=(lx, ly), xycoords="data",
-                                xytext=(1.04, label_y_frac), textcoords="axes fraction",
-                                color=color, fontsize=12, va="center", clip_on=False,
-                                arrowprops=dict(arrowstyle="-", color=color,
-                                                lw=1, alpha=0.5, relpos=(0, 0.5)))
-
-                ax.set_xlim(left=left_x, right=tick_positions[-1])
-                ax.set_xticks(tick_positions)
-                ax.set_xticklabels(tick_labels, rotation=45, fontsize=12)
-                ax.set_xlabel("Billion of tokens", fontsize=13)
-                ax.set_ylabel(metric_label, fontsize=13)
-                title = f"{metric_label} over training — {layer} | agg={agg}"
-                if model_label:
-                    title = f"[{model_label}] " + title
-                ax.set_title(title, fontsize=14)
-                ax.grid(True, linestyle='--', alpha=0.7)
+                fig, ax = plt.subplots(figsize=(12, 6))
+                endpoints = _plot_lines(ax, languages, raw_ys_per_lang, xs_common,
+                                        lang_colors, normalize, consensus_bps)
+                _shade_segments(ax, consensus_bps, smoothed_matrix, xs_common, left_x, tick_positions)
+                _annotate_endpoints(ax, endpoints)
+                _setup_axes(ax, tick_positions, tick_labels, left_x, metric_label, layer, agg, model_label)
                 plt.tight_layout()
 
                 fname = f"training_curve_{metric}_{layer}_{agg}.png"
                 _save(fig, os.path.join(output_dir, metric, fname))
+
+
+def _resolve_changepoints(changepoints, xs_common):
+    """Snap manually supplied changepoint x-values to the nearest value in xs_common."""
+    xs_arr = np.array(xs_common)
+    snapped = []
+    for cp in changepoints:
+        nearest = xs_common[int(np.argmin(np.abs(xs_arr - cp)))]
+        snapped.append(nearest)
+    return sorted(set(snapped))
+
+
+def show_training_curves(
+    df,
+    metrics=None,
+    languages=None,
+    layers=None,
+    aggregations=None,
+    model_label="",
+    smoothing=0.0,
+    normalize="none",
+    changepoint_pen=None,
+    changepoints=None,
+    tick_step=None,
+    main_value=None,
+):
+    """Display training-curve plots inline (designed for Jupyter notebooks).
+
+    All list parameters default to every value present in *df*, so you can
+    narrow down by passing e.g. layers=["layer_5"], metrics=["rankme"].
+    Multiple values produce multiple plots, one per (metric, layer, aggregation).
+    tick_step: spacing between intermediate x-ticks in billions of tokens (auto if None).
+    main_value: x-position (in billions of tokens) for the "main" checkpoint. If None,
+        "main" is excluded from the plot.
+    changepoints: explicit list of x-positions (in billions of tokens) to use as
+        changepoints instead of auto-detecting them.  When provided, each segment's
+        direction is determined by the mean derivative within that segment rather
+        than endpoint comparison.
+    """
+    all_checkpoints = _sort_checkpoints(df["checkpoint"].unique())
+    numeric_ckpts = [c for c in all_checkpoints if str(c).lower() != "main"]
+    xs_numeric = sorted(_ckpt_key(c) for c in numeric_ckpts)
+
+    if main_value is not None:
+        main_x = float(main_value)
+        checkpoints = all_checkpoints
+        xs_for_ticks = sorted(xs_numeric + [main_x])
+    else:
+        checkpoints = numeric_ckpts
+        main_x = None
+        xs_for_ticks = xs_numeric
+
+    tick_positions, tick_labels = _compute_ticks(xs_for_ticks, tick_step)
+
+    def ckpt_x(c):
+        return main_x if str(c).lower() == "main" else _ckpt_key(c)
+
+    metric_cols = [c for c in df.columns if c not in {"checkpoint", "dataset", "layer", "aggregation"}]
+    _metrics = metrics or metric_cols
+    _languages = languages or sorted(df["dataset"].unique())
+    _layers = layers or sorted(df["layer"].unique(), key=_layer_num)
+    _aggregations = aggregations or sorted(df["aggregation"].unique())
+    lang_colors = _language_colors(_languages)
+
+    manual_changepoints = changepoints is not None
+
+    for metric in _metrics:
+        metric_label = METRIC_LABELS.get(metric, metric)
+        for layer in _layers:
+            for agg in _aggregations:
+                subset = df[(df["layer"] == layer) & (df["aggregation"] == agg)]
+                if subset.empty:
+                    continue
+
+                xs_common = [ckpt_x(c) for c in checkpoints]
+                raw_ys_per_lang, smoothed_matrix, min_data_x = _collect_curve_data(
+                    subset, _languages, checkpoints, xs_common, metric, smoothing)
+                left_x = min_data_x if min_data_x < float("inf") else tick_positions[0]
+
+                if manual_changepoints:
+                    consensus_bps = _resolve_changepoints(changepoints, xs_common)
+                else:
+                    consensus_bps = _find_consensus_breakpoints(smoothed_matrix, xs_common, pen=changepoint_pen)
+
+                _, ax = plt.subplots(figsize=(12, 6))
+                endpoints = _plot_lines(ax, _languages, raw_ys_per_lang, xs_common,
+                                        lang_colors, normalize, consensus_bps)
+                _shade_segments(ax, consensus_bps, smoothed_matrix, xs_common, left_x, tick_positions,
+                                use_derivative=manual_changepoints)
+                _annotate_endpoints(ax, endpoints)
+                _setup_axes(ax, tick_positions, tick_labels, left_x, metric_label, layer, agg, model_label)
+                plt.tight_layout()
+                plt.show()
 
 
 def main():
@@ -269,6 +443,12 @@ def main():
                    help="Gaussian smoothing sigma in number of data points (default: 0 = no smoothing).")
     p.add_argument("--normalize", choices=["none", "global", "per-segment"], default="none",
                    help="Normalization mode: none (default), global min-max per curve, or per-segment min-max around the change point.")
+    p.add_argument("--changepoint-pen", type=float, default=None, metavar="PEN",
+                   help="PELT penalty for changepoint detection (default: log(n)). Higher = fewer breakpoints.")
+    p.add_argument("--tick-step", type=float, default=None, metavar="STEP",
+                   help="Spacing between intermediate x-ticks in billions of tokens (default: auto ~6 ticks).")
+    p.add_argument("--main-value", type=float, default=None, metavar="B",
+                   help="X-position (billions of tokens) for the 'main' checkpoint. Omit to hide it.")
     args = p.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -291,6 +471,8 @@ def main():
         df, metrics=metrics, languages=languages, layers=layers,
         aggregations=aggregations, output_dir=args.output_dir,
         model_label=args.model, smoothing=args.smoothing, normalize=args.normalize,
+        changepoint_pen=args.changepoint_pen, tick_step=args.tick_step,
+        main_value=args.main_value,
     )
 
     print(f"\nDone — plots saved under {args.output_dir}/")
