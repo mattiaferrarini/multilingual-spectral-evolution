@@ -3,8 +3,8 @@ model:
   checkpoints: all           # null = default branch, "all" = auto-discover, or list of branch names
   max_checkpoints: null       # cap the number of checkpoints processed (null = no limit)
   checkpoint_step: 3       # keep every Nth checkpoint (e.g. 3 = indices 0, 3, 6, …; null = all)
-  branch_filter_pattern: null # regex to filter branches (null = no filter)
-  # For Apertus, use: branch_filter_pattern: "^step\\d+-tokens\\d+[BT]$"
+  # branch_filter_pattern: null # regex to filter branches (null = no filter)
+  branch_filter_pattern: "^step\\d+-tokens\\d+[BT]$"
   trust_remote_code: true
 
 output_dir: results/xnli
