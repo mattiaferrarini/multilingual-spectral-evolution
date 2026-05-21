@@ -1,13 +1,23 @@
 """
 Plotting functions for the downstream evaluation results notebook.
 
-Three plots are provided:
-  - plot_rankme_phases: per-language RankMe trajectories with entropy/compression
-      phase regions shaded, giving a visual overview of the two training phases.
-  - plot_overlay: dual-axis plots overlaying RankMe (left) and downstream accuracy
-      (right) for each language, with phase shading and grokking onset marker.
-  - plot_correlation_scatter: scatter of compression-seeking onset vs peak accuracy,
-      one panel per task (m-MMLU / XCOPA), with a linear regression line.
+Per-model plots (trajectories, phase overlays, overlays):
+  - plot_rankme_phases
+  - plot_overlay
+  - plot_alpha_phases
+  - plot_alpha_overlay
+
+Combined scatter plots (both models overlaid, one file per plot):
+  - plot_rankme_last_scatter_combined
+  - plot_correlation_scatter_combined
+  - plot_alpha_rate_scatter_combined
+  - plot_alpha_correlation_scatter_combined
+
+Legacy single-model scatter plots (kept for backwards compat, not used by notebook):
+  - plot_rankme_last_scatter
+  - plot_correlation_scatter
+  - plot_alpha_rate_scatter
+  - plot_alpha_correlation_scatter
 
 All plots are saved to plots_dir and displayed inline.
 """
@@ -29,9 +39,20 @@ PHASE_LABELS = {"entropy_seeking": "Entropy-seeking", "compression_seeking": "Co
 ALPHA_PHASE_COLORS = {"regularization_increasing": "dodgerblue", "regularization_decreasing": "darkorchid"}
 ALPHA_PHASE_LABELS = {"regularization_increasing": "Reg.-increasing (α↓)", "regularization_decreasing": "Reg.-decreasing (α↑)"}
 
+# Colors and markers used for each model in combined scatter plots.
+_MODEL_PALETTE = [
+    {"color": "steelblue",   "marker": "o"},
+    {"color": "darkorange",  "marker": "s"},
+    {"color": "seagreen",    "marker": "^"},
+    {"color": "darkorchid",  "marker": "D"},
+]
+
+
+# ── Per-model plots ────────────────────────────────────────────────────────────
 
 def plot_rankme_phases(df_layer, df_phases, checkpoints_all, token_counts,
-                       langs_sorted, model_label, layer, aggregation, plots_dir) -> None:
+                       langs_sorted, model_label, layer, aggregation, plots_dir,
+                       model_key="") -> None:
     """Per-language RankMe trajectory with entropy/compression phase shading."""
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
@@ -66,14 +87,16 @@ def plot_rankme_phases(df_layer, df_phases, checkpoints_all, token_counts,
     fig.suptitle(f"[{model_label}] RankMe training phases — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    path = Path(plots_dir) / "rankme_phases.png"
+    suffix = f"_{model_key}" if model_key else ""
+    path = Path(plots_dir) / f"rankme_phases{suffix}.png"
     plt.savefig(path)
     plt.show()
     print(f"Saved: {path}")
 
 
 def plot_overlay(df_eval, df_layer, df_phases, df_grokking, task_languages, random_chance,
-                 checkpoints_all, token_counts, langs_sorted, model_label, plots_dir) -> None:
+                 checkpoints_all, token_counts, langs_sorted, model_label, plots_dir,
+                 model_key="") -> None:
     """Dual-axis RankMe + accuracy overlay per language, with phase shading."""
     for task in ["m_mmlu", "xcopa"]:
         df_task = df_eval[df_eval["task"] == task]
@@ -132,14 +155,16 @@ def plot_overlay(df_eval, df_layer, df_phases, df_grokking, task_languages, rand
         fig.suptitle(f"[{model_label}] RankMe vs {task.upper()} accuracy",
                      fontsize=13, fontweight="bold")
         plt.tight_layout()
-        path = Path(plots_dir) / f"overlay_{task}.png"
+        suffix = f"_{model_key}" if model_key else ""
+        path = Path(plots_dir) / f"overlay_{task}{suffix}.png"
         plt.savefig(path)
         plt.show()
         print(f"Saved: {path}")
 
 
 def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
-                      langs_sorted, model_label, layer, aggregation, plots_dir) -> None:
+                      langs_sorted, model_label, layer, aggregation, plots_dir,
+                      model_key="") -> None:
     """Per-language AlphaReQ trajectory with regularization phase shading."""
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
@@ -174,7 +199,8 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
     fig.suptitle(f"[{model_label}] AlphaReQ training phases — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
     plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    path = Path(plots_dir) / "alpha_phases.png"
+    suffix = f"_{model_key}" if model_key else ""
+    path = Path(plots_dir) / f"alpha_phases{suffix}.png"
     plt.savefig(path)
     plt.show()
     print(f"Saved: {path}")
@@ -182,7 +208,7 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
 
 def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_languages,
                        random_chance, checkpoints_all, token_counts, langs_sorted,
-                       model_label, plots_dir) -> None:
+                       model_label, plots_dir, model_key="") -> None:
     """Dual-axis AlphaReQ + accuracy overlay per language, with phase shading."""
     for task in ["m_mmlu", "xcopa"]:
         df_task = df_eval[df_eval["task"] == task]
@@ -241,183 +267,94 @@ def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_lan
         fig.suptitle(f"[{model_label}] AlphaReQ vs {task.upper()} accuracy",
                      fontsize=13, fontweight="bold")
         plt.tight_layout()
-        path = Path(plots_dir) / f"alpha_overlay_{task}.png"
+        suffix = f"_{model_key}" if model_key else ""
+        path = Path(plots_dir) / f"alpha_overlay_{task}{suffix}.png"
         plt.savefig(path)
         plt.show()
         print(f"Saved: {path}")
 
 
-def plot_alpha_correlation_scatter(df_grokking, df_alpha_phases, model_label, plots_dir) -> None:
-    """Scatter: AlphaReQ reg.-decreasing onset vs peak accuracy, one panel per task."""
+# ── Combined scatter plots (both models overlaid) ─────────────────────────────
+#
+# Each function accepts `models_data`: a list of dicts with keys:
+#   label        — model display name
+#   df_grokking  — grokking DataFrame
+#   df_phases    — RankMe phases DataFrame  (rankme scatter functions)
+#   df_alpha_phases — AlphaReQ phases DataFrame  (alpha scatter functions)
+#   color        — point/line color for this model
+#   marker       — scatter marker style for this model
+
+def _regression_label(valid, x_col, y_col):
+    """Return (slope, intercept, title_str) or (None, None, reason_str)."""
+    if len(valid) < 2:
+        return None, None, f"n={len(valid)} (insufficient)"
+    try:
+        slope, intercept, pe_r, pe_p, _ = stats.linregress(valid[x_col], valid[y_col])
+        sp_r, sp_p = stats.spearmanr(valid[x_col], valid[y_col])
+        label = (f"Sp.r={sp_r:.2f}(p={sp_p:.3f}) | Pe.r={pe_r:.2f}(p={pe_p:.3f}) n={len(valid)}")
+        return slope, intercept, label
+    except ValueError:
+        return None, None, f"n={len(valid)}"
+
+
+def plot_rankme_last_scatter_combined(models_data: list, plots_dir) -> None:
+    """Scatter: RankMe at last checkpoint vs peak accuracy — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
-        ax   = axes[ax_idx]
-        df_t = df_grokking[df_grokking["task"] == task] if not df_grokking.empty else pd.DataFrame()
+        ax = axes[ax_idx]
+        title_lines = []
+        has_data = False
 
-        if df_t.empty:
-            ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=12)
-            ax.set_title(task.upper(), fontsize=11)
-            continue
+        for i, md in enumerate(models_data):
+            palette = _MODEL_PALETTE[i % len(_MODEL_PALETTE)]
+            color  = md.get("color",  palette["color"])
+            marker = md.get("marker", palette["marker"])
+            label  = md["label"]
 
-        merged = df_t.merge(df_alpha_phases[["language", "reg_decreasing_onset_tokens"]],
-                             on="language", how="inner")
-        valid  = merged.dropna(subset=["reg_decreasing_onset_tokens", "peak_accuracy"])
+            df_t = md["df_grokking"]
+            if df_t.empty:
+                continue
+            df_t = df_t[df_t["task"] == task]
+            if df_t.empty:
+                continue
 
-        ax.scatter(valid["reg_decreasing_onset_tokens"], valid["peak_accuracy"],
-                   s=90, zorder=3, color="steelblue", edgecolors="k", lw=0.5)
-        for _, row in valid.iterrows():
-            ax.annotate(row["language"],
-                        (row["reg_decreasing_onset_tokens"], row["peak_accuracy"]),
-                        fontsize=8, xytext=(5, 3), textcoords="offset points")
+            merged = df_t.merge(md["df_phases"][["language", "rankme_last"]],
+                                on="language", how="inner")
+            valid  = merged.dropna(subset=["rankme_last", "peak_accuracy"])
+            if valid.empty:
+                continue
 
-        title_suffix = "Insufficient data"
-        if len(valid) >= 2:
-            try:
-                from scipy import stats as _stats
-                slope, intercept, r, p, _ = _stats.linregress(
-                    valid["reg_decreasing_onset_tokens"], valid["peak_accuracy"])
-                x_line = np.linspace(valid["reg_decreasing_onset_tokens"].min(),
-                                      valid["reg_decreasing_onset_tokens"].max(), 100)
-                ax.plot(x_line, slope * x_line + intercept,
-                        color="crimson", alpha=0.6, lw=1.5, ls="--",
-                        label=f"r = {r:.2f}, p = {p:.3f}")
-                ax.legend(fontsize=9)
-                title_suffix = f"Pearson r={r:.2f}, p={p:.3f}  (n={len(valid)})"
-            except ValueError:
-                title_suffix = f"n={len(valid)}"
+            has_data = True
+            ax.scatter(valid["rankme_last"], valid["peak_accuracy"],
+                       s=90, zorder=3, color=color, edgecolors="k", lw=0.5,
+                       marker=marker, label=label)
+            for _, row in valid.iterrows():
+                ax.annotate(row["language"],
+                            (row["rankme_last"], row["peak_accuracy"]),
+                            fontsize=7, xytext=(5, 3), textcoords="offset points",
+                            color=color)
 
-        ax.xaxis.set_major_formatter(FuncFormatter(format_tokens))
-        ax.set_xlabel("Reg.-decreasing onset (AlphaReQ trough)", fontsize=10)
-        ax.set_ylabel("Peak downstream accuracy", fontsize=10)
-        ax.set_title(f"{task.upper()}\n{title_suffix}", fontsize=10)
-        ax.grid(True, alpha=0.3)
-
-    fig.suptitle(f"[{model_label}] AlphaReQ trough position → downstream accuracy",
-                 fontsize=13, fontweight="bold")
-    plt.tight_layout()
-    path = Path(plots_dir) / "alpha_correlation_scatter.png"
-    plt.savefig(path)
-    plt.show()
-    print(f"Saved: {path}")
-
-
-def plot_alpha_rate_scatter(df_grokking, df_alpha_phases, model_label, plots_dir) -> None:
-    """Scatter: rate of α decline vs grokking onset, one panel per task."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
-        ax   = axes[ax_idx]
-        df_t = df_grokking[df_grokking["task"] == task] if not df_grokking.empty else pd.DataFrame()
-
-        if df_t.empty:
-            ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=12)
-            ax.set_title(task.upper(), fontsize=11)
-            continue
-
-        merged = df_t.merge(df_alpha_phases[["language", "reg_increasing_rate"]],
-                             on="language", how="inner")
-        valid  = merged.dropna(subset=["reg_increasing_rate", "grokking_tokens"])
-
-        if valid.empty:
-            ax.text(0.5, 0.5, "No grokking detected", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=11, color="gray")
-            ax.set_title(f"{task.upper()}\n(no valid pairs)", fontsize=10)
-            ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
-            ax.set_ylabel("Grokking onset (B)", fontsize=10)
-            ax.grid(True, alpha=0.3)
-            continue
-
-        ax.scatter(valid["reg_increasing_rate"], valid["grokking_tokens"],
-                   s=90, zorder=3, color="darkorchid", edgecolors="k", lw=0.5)
-        for _, row in valid.iterrows():
-            ax.annotate(row["language"],
-                        (row["reg_increasing_rate"], row["grokking_tokens"]),
-                        fontsize=8, xytext=(5, 3), textcoords="offset points")
-
-        title_suffix = "Insufficient data"
-        if len(valid) >= 2:
-            try:
-                slope, intercept, pe_r, pe_p, _ = stats.linregress(
-                    valid["reg_increasing_rate"], valid["grokking_tokens"])
-                sp_r, sp_p = stats.spearmanr(
-                    valid["reg_increasing_rate"], valid["grokking_tokens"])
-                x_line = np.linspace(valid["reg_increasing_rate"].min(),
-                                     valid["reg_increasing_rate"].max(), 100)
-                ax.plot(x_line, slope * x_line + intercept,
-                        color="crimson", alpha=0.6, lw=1.5, ls="--",
-                        label=f"Pearson r = {pe_r:.2f}, p = {pe_p:.3f}")
-                ax.legend(fontsize=9)
-                title_suffix = (f"Spearman r={sp_r:.2f}, p={sp_p:.3f} | "
-                                f"Pearson r={pe_r:.2f}, p={pe_p:.3f}  (n={len(valid)})")
-            except ValueError:
-                title_suffix = f"n={len(valid)}"
-
-        ax.yaxis.set_major_formatter(FuncFormatter(format_tokens))
-        ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
-        ax.set_ylabel("Grokking onset (B)", fontsize=10)
-        ax.set_title(f"{task.upper()}\n{title_suffix}", fontsize=10)
-        ax.grid(True, alpha=0.3)
-
-    fig.suptitle(f"[{model_label}] Rate of α decline → grokking onset",
-                 fontsize=13, fontweight="bold")
-    plt.tight_layout()
-    path = Path(plots_dir) / "alpha_rate_scatter.png"
-    plt.savefig(path)
-    plt.show()
-    print(f"Saved: {path}")
-
-
-def plot_rankme_last_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
-    """Scatter: RankMe at last checkpoint vs peak accuracy, one panel per task."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
-        ax   = axes[ax_idx]
-        df_t = df_grokking[df_grokking["task"] == task] if not df_grokking.empty else pd.DataFrame()
-
-        if df_t.empty:
-            ax.text(0.5, 0.5, "No data", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=12)
-            ax.set_title(task.upper(), fontsize=11)
-            continue
-
-        merged = df_t.merge(df_phases[["language", "rankme_last"]], on="language", how="inner")
-        valid  = merged.dropna(subset=["rankme_last", "peak_accuracy"])
-
-        ax.scatter(valid["rankme_last"], valid["peak_accuracy"],
-                   s=90, zorder=3, color="steelblue", edgecolors="k", lw=0.5)
-        for _, row in valid.iterrows():
-            ax.annotate(row["language"],
-                        (row["rankme_last"], row["peak_accuracy"]),
-                        fontsize=8, xytext=(5, 3), textcoords="offset points")
-
-        title_suffix = "Insufficient data"
-        if len(valid) >= 2:
-            try:
-                slope, intercept, pe_r, pe_p, _ = stats.linregress(
-                    valid["rankme_last"], valid["peak_accuracy"])
-                sp_r, sp_p = stats.spearmanr(
-                    valid["rankme_last"], valid["peak_accuracy"])
+            slope, intercept, stat_str = _regression_label(valid, "rankme_last", "peak_accuracy")
+            if slope is not None:
                 x_line = np.linspace(valid["rankme_last"].min(),
                                      valid["rankme_last"].max(), 100)
                 ax.plot(x_line, slope * x_line + intercept,
-                        color="crimson", alpha=0.6, lw=1.5, ls="--",
-                        label=f"Pearson r = {pe_r:.2f}, p = {pe_p:.3f}")
-                ax.legend(fontsize=9)
-                title_suffix = (f"Spearman r={sp_r:.2f}, p={sp_p:.3f} | "
-                                f"Pearson r={pe_r:.2f}, p={pe_p:.3f}  (n={len(valid)})")
-            except ValueError:
-                title_suffix = f"n={len(valid)}"
+                        color=color, alpha=0.6, lw=1.5, ls="--")
+            title_lines.append(f"{label}: {stat_str}")
+
+        if not has_data:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=12)
 
         ax.set_xlabel("RankMe at last checkpoint", fontsize=10)
         ax.set_ylabel("Peak downstream accuracy", fontsize=10)
-        ax.set_title(f"{task.upper()}\n{title_suffix}", fontsize=10)
+        ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
+                     else task.upper(), fontsize=9)
+        ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle(f"[{model_label}] RankMe at last checkpoint → downstream accuracy",
+    fig.suptitle("RankMe at last checkpoint → downstream accuracy  [both models]",
                  fontsize=13, fontweight="bold")
     plt.tight_layout()
     path = Path(plots_dir) / "rankme_last_scatter.png"
@@ -426,56 +363,237 @@ def plot_rankme_last_scatter(df_grokking, df_phases, model_label, plots_dir) -> 
     print(f"Saved: {path}")
 
 
-def plot_correlation_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
-    """Scatter: compression onset vs peak accuracy, one panel per task."""
+def plot_correlation_scatter_combined(models_data: list, plots_dir) -> None:
+    """Scatter: compression onset vs peak accuracy — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
-        ax   = axes[ax_idx]
-        df_t = df_grokking[df_grokking["task"] == task] if not df_grokking.empty else pd.DataFrame()
+        ax = axes[ax_idx]
+        title_lines = []
+        has_data = False
 
-        if df_t.empty:
+        for i, md in enumerate(models_data):
+            palette = _MODEL_PALETTE[i % len(_MODEL_PALETTE)]
+            color  = md.get("color",  palette["color"])
+            marker = md.get("marker", palette["marker"])
+            label  = md["label"]
+
+            df_t = md["df_grokking"]
+            if df_t.empty:
+                continue
+            df_t = df_t[df_t["task"] == task]
+            if df_t.empty:
+                continue
+
+            merged = df_t.merge(
+                md["df_phases"][["language", "compression_onset_tokens"]],
+                on="language", how="inner")
+            valid  = merged.dropna(subset=["compression_onset_tokens", "peak_accuracy"])
+            if valid.empty:
+                continue
+
+            has_data = True
+            ax.scatter(valid["compression_onset_tokens"], valid["peak_accuracy"],
+                       s=90, zorder=3, color=color, edgecolors="k", lw=0.5,
+                       marker=marker, label=label)
+            for _, row in valid.iterrows():
+                ax.annotate(row["language"],
+                            (row["compression_onset_tokens"], row["peak_accuracy"]),
+                            fontsize=7, xytext=(5, 3), textcoords="offset points",
+                            color=color)
+
+            slope, intercept, stat_str = _regression_label(
+                valid, "compression_onset_tokens", "peak_accuracy")
+            if slope is not None:
+                x_line = np.linspace(valid["compression_onset_tokens"].min(),
+                                     valid["compression_onset_tokens"].max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color=color, alpha=0.6, lw=1.5, ls="--")
+            title_lines.append(f"{label}: {stat_str}")
+
+        if not has_data:
             ax.text(0.5, 0.5, "No data", ha="center", va="center",
                     transform=ax.transAxes, fontsize=12)
-            ax.set_title(task.upper(), fontsize=11)
-            continue
-
-        merged = df_t.merge(df_phases[["language", "compression_onset_tokens"]],
-                             on="language", how="inner")
-        valid  = merged.dropna(subset=["compression_onset_tokens", "peak_accuracy"])
-
-        ax.scatter(valid["compression_onset_tokens"], valid["peak_accuracy"],
-                   s=90, zorder=3, color="steelblue", edgecolors="k", lw=0.5)
-        for _, row in valid.iterrows():
-            ax.annotate(row["language"],
-                        (row["compression_onset_tokens"], row["peak_accuracy"]),
-                        fontsize=8, xytext=(5, 3), textcoords="offset points")
-
-        title_suffix = "Insufficient data"
-        if len(valid) >= 2:
-            try:
-                slope, intercept, r, p, _ = stats.linregress(
-                    valid["compression_onset_tokens"], valid["peak_accuracy"])
-                x_line = np.linspace(valid["compression_onset_tokens"].min(),
-                                      valid["compression_onset_tokens"].max(), 100)
-                ax.plot(x_line, slope * x_line + intercept,
-                        color="crimson", alpha=0.6, lw=1.5, ls="--",
-                        label=f"r = {r:.2f}, p = {p:.3f}")
-                ax.legend(fontsize=9)
-                title_suffix = f"Pearson r={r:.2f}, p={p:.3f}  (n={len(valid)})"
-            except ValueError:
-                title_suffix = f"n={len(valid)}"
 
         ax.xaxis.set_major_formatter(FuncFormatter(format_tokens))
         ax.set_xlabel("Compression-seeking onset", fontsize=10)
         ax.set_ylabel("Peak downstream accuracy", fontsize=10)
-        ax.set_title(f"{task.upper()}\n{title_suffix}", fontsize=10)
+        ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
+                     else task.upper(), fontsize=9)
+        ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle(f"[{model_label}] Compression onset → downstream accuracy",
+    fig.suptitle("Compression onset → downstream accuracy  [both models]",
                  fontsize=13, fontweight="bold")
     plt.tight_layout()
     path = Path(plots_dir) / "correlation_scatter.png"
     plt.savefig(path)
     plt.show()
     print(f"Saved: {path}")
+
+
+def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> None:
+    """Scatter: AlphaReQ trough position vs peak accuracy — both models overlaid."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
+        ax = axes[ax_idx]
+        title_lines = []
+        has_data = False
+
+        for i, md in enumerate(models_data):
+            palette = _MODEL_PALETTE[i % len(_MODEL_PALETTE)]
+            color  = md.get("color",  palette["color"])
+            marker = md.get("marker", palette["marker"])
+            label  = md["label"]
+
+            df_t = md["df_grokking"]
+            if df_t.empty:
+                continue
+            df_t = df_t[df_t["task"] == task]
+            if df_t.empty:
+                continue
+
+            merged = df_t.merge(
+                md["df_alpha_phases"][["language", "reg_decreasing_onset_tokens"]],
+                on="language", how="inner")
+            valid  = merged.dropna(subset=["reg_decreasing_onset_tokens", "peak_accuracy"])
+            if valid.empty:
+                continue
+
+            has_data = True
+            ax.scatter(valid["reg_decreasing_onset_tokens"], valid["peak_accuracy"],
+                       s=90, zorder=3, color=color, edgecolors="k", lw=0.5,
+                       marker=marker, label=label)
+            for _, row in valid.iterrows():
+                ax.annotate(row["language"],
+                            (row["reg_decreasing_onset_tokens"], row["peak_accuracy"]),
+                            fontsize=7, xytext=(5, 3), textcoords="offset points",
+                            color=color)
+
+            slope, intercept, stat_str = _regression_label(
+                valid, "reg_decreasing_onset_tokens", "peak_accuracy")
+            if slope is not None:
+                x_line = np.linspace(valid["reg_decreasing_onset_tokens"].min(),
+                                     valid["reg_decreasing_onset_tokens"].max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color=color, alpha=0.6, lw=1.5, ls="--")
+            title_lines.append(f"{label}: {stat_str}")
+
+        if not has_data:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=12)
+
+        ax.xaxis.set_major_formatter(FuncFormatter(format_tokens))
+        ax.set_xlabel("Reg.-decreasing onset (AlphaReQ trough)", fontsize=10)
+        ax.set_ylabel("Peak downstream accuracy", fontsize=10)
+        ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
+                     else task.upper(), fontsize=9)
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("AlphaReQ trough position → downstream accuracy  [both models]",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    path = Path(plots_dir) / "alpha_correlation_scatter.png"
+    plt.savefig(path)
+    plt.show()
+    print(f"Saved: {path}")
+
+
+def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
+    """Scatter: rate of α decline vs grokking onset — both models overlaid."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
+        ax = axes[ax_idx]
+        title_lines = []
+        has_data = False
+
+        for i, md in enumerate(models_data):
+            palette = _MODEL_PALETTE[i % len(_MODEL_PALETTE)]
+            color  = md.get("color",  palette["color"])
+            marker = md.get("marker", palette["marker"])
+            label  = md["label"]
+
+            df_t = md["df_grokking"]
+            if df_t.empty:
+                continue
+            df_t = df_t[df_t["task"] == task]
+            if df_t.empty:
+                continue
+
+            merged = df_t.merge(
+                md["df_alpha_phases"][["language", "reg_increasing_rate"]],
+                on="language", how="inner")
+            valid  = merged.dropna(subset=["reg_increasing_rate", "grokking_tokens"])
+            if valid.empty:
+                continue
+
+            has_data = True
+            ax.scatter(valid["reg_increasing_rate"], valid["grokking_tokens"],
+                       s=90, zorder=3, color=color, edgecolors="k", lw=0.5,
+                       marker=marker, label=label)
+            for _, row in valid.iterrows():
+                ax.annotate(row["language"],
+                            (row["reg_increasing_rate"], row["grokking_tokens"]),
+                            fontsize=7, xytext=(5, 3), textcoords="offset points",
+                            color=color)
+
+            slope, intercept, stat_str = _regression_label(
+                valid, "reg_increasing_rate", "grokking_tokens")
+            if slope is not None:
+                x_line = np.linspace(valid["reg_increasing_rate"].min(),
+                                     valid["reg_increasing_rate"].max(), 100)
+                ax.plot(x_line, slope * x_line + intercept,
+                        color=color, alpha=0.6, lw=1.5, ls="--")
+            title_lines.append(f"{label}: {stat_str}")
+
+        if not has_data:
+            ax.text(0.5, 0.5, "No grokking detected", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=11, color="gray")
+
+        ax.yaxis.set_major_formatter(FuncFormatter(format_tokens))
+        ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
+        ax.set_ylabel("Grokking onset (B)", fontsize=10)
+        ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
+                     else task.upper(), fontsize=9)
+        if has_data:
+            ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle("Rate of α decline → grokking onset  [both models]",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    path = Path(plots_dir) / "alpha_rate_scatter.png"
+    plt.savefig(path)
+    plt.show()
+    print(f"Saved: {path}")
+
+
+# ── Legacy single-model scatter plots (not used by notebook) ──────────────────
+
+def plot_rankme_last_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
+    """Single-model version. Use plot_rankme_last_scatter_combined for the notebook."""
+    models_data = [{"label": model_label, "df_grokking": df_grokking, "df_phases": df_phases}]
+    plot_rankme_last_scatter_combined(models_data, plots_dir)
+
+
+def plot_correlation_scatter(df_grokking, df_phases, model_label, plots_dir) -> None:
+    """Single-model version. Use plot_correlation_scatter_combined for the notebook."""
+    models_data = [{"label": model_label, "df_grokking": df_grokking, "df_phases": df_phases}]
+    plot_correlation_scatter_combined(models_data, plots_dir)
+
+
+def plot_alpha_correlation_scatter(df_grokking, df_alpha_phases, model_label, plots_dir) -> None:
+    """Single-model version. Use plot_alpha_correlation_scatter_combined for the notebook."""
+    models_data = [{"label": model_label, "df_grokking": df_grokking,
+                    "df_alpha_phases": df_alpha_phases}]
+    plot_alpha_correlation_scatter_combined(models_data, plots_dir)
+
+
+def plot_alpha_rate_scatter(df_grokking, df_alpha_phases, model_label, plots_dir) -> None:
+    """Single-model version. Use plot_alpha_rate_scatter_combined for the notebook."""
+    models_data = [{"label": model_label, "df_grokking": df_grokking,
+                    "df_alpha_phases": df_alpha_phases}]
+    plot_alpha_rate_scatter_combined(models_data, plots_dir)
