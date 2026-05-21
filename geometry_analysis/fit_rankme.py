@@ -7,7 +7,7 @@ import re
 import numpy as np
 import pandas as pd
 from typing import Protocol, Callable
-from scipy.optimize import differential_evolution
+from scipy.optimize import differential_evolution, lsq_linear
 
 T_CHANGE_FIXED = 241.0  # billions of tokens (default changepoint)
 T_SCALE = 1000.0       # divide B -> T before fitting for numerical stability
@@ -171,6 +171,93 @@ class ThreePhasePerLangAC:
         return [np.ones_like(t), phase1_b, phase2_b, phase3_b]
 
 
+class ThreePhaseDualTailAC:
+    nonlinear_param_names = ["gamma", "lam2", "lam3"]
+    linear_param_names = ["alpha", "A", "C2", "C3_decay", "C3_growth"]
+    linear_bounds = [
+        (-np.inf, np.inf),  # alpha
+        (-np.inf, np.inf),  # A
+        (-np.inf, np.inf),  # C2
+        (-np.inf, 0.0),     # C3_decay
+        (0.0, np.inf),      # C3_growth
+    ]
+    # Indices 3 (C3_decay) and 4 (C3_growth) are mutually exclusive: at most one
+    # should be non-zero per language.  fit_engine uses this to do per-language
+    # branch selection after the global DE pass.
+    linear_exclusive_groups = [[3, 4]]
+
+    def get_bounds(self, t_min: float, t_max: float, changepoints: list[float]) -> list[tuple[float, float]]:
+        t1, t2 = changepoints
+        lam2_max = max(t2 - t1, 0.1)
+        lam3_max = max(t_max - t2, 0.1)
+        return [
+            (0.01, 5.0),        # gamma
+            (0.01, lam2_max),   # lam2
+            (0.01, lam3_max),   # lam3
+        ]
+
+    def validate_params(self, nonlinear_params: list[float], changepoints: list[float]) -> bool:
+        gamma, lam2, lam3 = nonlinear_params
+        t1, t2 = changepoints
+        return gamma > 0.0 and lam2 > 0.0 and lam3 > 0.0 and t1 < t2
+
+    def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
+        gamma, lam2, lam3 = nonlinear_params
+        t1, t2 = changepoints
+        phase1_b = np.power(t, -gamma)
+        dt2 = np.maximum(t - t1, 0.0)
+        dt3 = np.maximum(t - t2, 0.0)
+        phase2_b = np.where(t <= t1, 0.0, 1.0 - np.exp(-dt2 / lam2))
+        phase3_decay = np.where(t <= t2, 0.0, 1.0 - np.exp(-dt3 / lam3))
+        with np.errstate(over='ignore'):
+            phase3_growth = np.where(t <= t2, 0.0, np.exp(dt3 / lam3) - 1.0)
+        return [np.ones_like(t), phase1_b, phase2_b, phase3_decay, phase3_growth]
+
+
+class ThreePhaseDualLamAC:
+    """Like ThreePhaseDualTailAC but with separate lam3_decay / lam3_growth so each
+    regime has its own characteristic timescale.  Branch exclusivity is still enforced
+    per language during fitting."""
+    nonlinear_param_names = ["gamma", "lam2", "lam3_decay", "lam3_growth"]
+    linear_param_names = ["alpha", "A", "C2", "C3_decay", "C3_growth"]
+    linear_bounds = [
+        (-np.inf, np.inf),  # alpha
+        (-np.inf, np.inf),  # A
+        (-np.inf, np.inf),  # C2
+        (-np.inf, 0.0),     # C3_decay
+        (0.0, np.inf),      # C3_growth
+    ]
+    linear_exclusive_groups = [[3, 4]]
+
+    def get_bounds(self, t_min: float, t_max: float, changepoints: list[float]) -> list[tuple[float, float]]:
+        t1, t2 = changepoints
+        lam2_max = max(t2 - t1, 0.1)
+        lam3_max = max(t_max - t2, 0.1)
+        return [
+            (0.01, 5.0),        # gamma
+            (0.01, lam2_max),   # lam2
+            (0.01, lam3_max),   # lam3_decay
+            (0.01, lam3_max),   # lam3_growth
+        ]
+
+    def validate_params(self, nonlinear_params: list[float], changepoints: list[float]) -> bool:
+        gamma, lam2, lam3_decay, lam3_growth = nonlinear_params
+        t1, t2 = changepoints
+        return gamma > 0.0 and lam2 > 0.0 and lam3_decay > 0.0 and lam3_growth > 0.0 and t1 < t2
+
+    def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
+        gamma, lam2, lam3_decay, lam3_growth = nonlinear_params
+        t1, t2 = changepoints
+        phase1_b = np.power(t, -gamma)
+        dt2 = np.maximum(t - t1, 0.0)
+        dt3 = np.maximum(t - t2, 0.0)
+        phase2_b = np.where(t <= t1, 0.0, 1.0 - np.exp(-dt2 / lam2))
+        phase3_decay = np.where(t <= t2, 0.0, 1.0 - np.exp(-dt3 / lam3_decay))
+        with np.errstate(over='ignore'):
+            phase3_growth = np.where(t <= t2, 0.0, np.exp(dt3 / lam3_growth) - 1.0)
+        return [np.ones_like(t), phase1_b, phase2_b, phase3_decay, phase3_growth]
+
+
 # ---- Fitting Engine ----
 
 def fit_engine(
@@ -183,7 +270,12 @@ def fit_engine(
     seed: int = 0
 ):
     n_changepoints = len(fixed_changepoints)
-    
+
+    # Precompute constraint info once so closures don't recompute per call.
+    _lb = [b[0] for b in model.linear_bounds] if hasattr(model, 'linear_bounds') and model.linear_bounds is not None else None
+    _ub = [b[1] for b in model.linear_bounds] if hasattr(model, 'linear_bounds') and model.linear_bounds is not None else None
+    _exclusive = getattr(model, 'linear_exclusive_groups', None) if _lb is not None else None
+
     def unpack_params(x: np.ndarray) -> tuple[list[float], list[float]]:
         x_list = list(x)
         cps = []
@@ -194,27 +286,53 @@ def fit_engine(
                 cps.append(x_list.pop())
         return x_list, cps
 
+    def fit_coeffs(X: np.ndarray, R: np.ndarray) -> np.ndarray:
+        """Fit linear coefficients with optional sign bounds and exclusive-branch selection."""
+        if _lb is not None:
+            coeffs = lsq_linear(X, R, bounds=(_lb, _ub)).x
+            if _exclusive:
+                for group in _exclusive:
+                    if sum(1 for i in group if abs(coeffs[i]) > 1e-10) > 1:
+                        best_sse = np.inf
+                        best_coeffs = coeffs
+                        zero_set = set(group)
+                        for keep_i in group:
+                            keep_cols = [c for c in range(X.shape[1]) if c not in zero_set or c == keep_i]
+                            X_sel = X[:, keep_cols]
+                            c_red = lsq_linear(X_sel, R, bounds=([_lb[c] for c in keep_cols], [_ub[c] for c in keep_cols])).x
+                            c_sel = np.zeros(len(coeffs))
+                            for idx, c in enumerate(keep_cols):
+                                c_sel[c] = c_red[idx]
+                            res = R - X @ c_sel
+                            sse = float(np.dot(res, res))
+                            if sse < best_sse:
+                                best_sse = sse
+                                best_coeffs = c_sel
+                        coeffs = best_coeffs
+            return coeffs
+        coeffs, _, _, _ = np.linalg.lstsq(X, R, rcond=None)
+        return coeffs
+
     def total_sse(x: np.ndarray) -> float:
         nonlinear, cps = unpack_params(x)
         if not model.validate_params(nonlinear, cps):
             return 1e18
-            
         sse = 0.0
         for lang in t_by_lang:
             basis = model.evaluate_basis(t_by_lang[lang], nonlinear, cps)
-            if any(not np.all(np.isfinite(b)) for b in basis):
+            if any(not np.all(np.isfinite(b)) or np.max(np.abs(b)) > 1e15 for b in basis):
                 return 1e18
             X = np.column_stack(basis)
-            coeffs, _, _, _ = np.linalg.lstsq(X, R_by_lang[lang], rcond=None)
+            coeffs = fit_coeffs(X, R_by_lang[lang])
             residuals = R_by_lang[lang] - X @ coeffs
             sse += float(np.dot(residuals, residuals))
         return sse
 
     # Construct bounds dynamically using dummy fixed changepoints if needed for bounds estimation
-    dummy_cps = [cp if cp is not None else t_min + (t_max - t_min) * (i + 1) / (n_changepoints + 1) 
+    dummy_cps = [cp if cp is not None else t_min + (t_max - t_min) * (i + 1) / (n_changepoints + 1)
                  for i, cp in enumerate(fixed_changepoints)]
     bounds = model.get_bounds(t_min, t_max, dummy_cps)
-    
+
     # We add a tiny margin to prevent bounds from collapsing or exceeding data exactly.
     # 1e-4 T is 100M tokens, which is safely small enough for both T and B scales.
     margin = 1e-4
@@ -229,20 +347,19 @@ def fit_engine(
     )
 
     best_nonlinear, best_cps = unpack_params(result.x)
-    
+
     # Final OLS pass to extract per-language linear params
     lang_results = {}
     for lang in t_by_lang:
         basis = model.evaluate_basis(t_by_lang[lang], best_nonlinear, best_cps)
         X = np.column_stack(basis)
-        coeffs, _, _, _ = np.linalg.lstsq(X, R_by_lang[lang], rcond=None)
-        residuals = R_by_lang[lang] - X @ coeffs
+        R = R_by_lang[lang]
+        coeffs = fit_coeffs(X, R)
+        residuals = R - X @ coeffs
         sse = float(np.dot(residuals, residuals))
-        
-        R_mean = R_by_lang[lang].mean()
-        ss_tot = float(np.sum((R_by_lang[lang] - R_mean) ** 2))
+        R_mean = R.mean()
+        ss_tot = float(np.sum((R - R_mean) ** 2))
         r2 = 1.0 - sse / ss_tot if ss_tot > 0 else float("nan")
-        
         linear_params = dict(zip(model.linear_param_names, coeffs))
         lang_results[lang] = {"linear_params": linear_params, "sse": sse, "r2": r2}
 
@@ -304,6 +421,8 @@ def fit_rankme_from_df(
         if "lam" in nl_dict: row["lam"] = nl_dict["lam"] * t_scale
         if "lam2" in nl_dict: row["lam2"] = nl_dict["lam2"] * t_scale
         if "lam3" in nl_dict: row["lam3"] = nl_dict["lam3"] * t_scale
+        if "lam3_decay" in nl_dict: row["lam3_decay"] = nl_dict["lam3_decay"] * t_scale
+        if "lam3_growth" in nl_dict: row["lam3_growth"] = nl_dict["lam3_growth"] * t_scale
         if "A" in nl_dict: row["A"] = nl_dict["A"] * (t_scale ** nl_dict.get("gamma", 0))
         if "C" in nl_dict: row["C"] = nl_dict["C"]
         if "C2" in nl_dict: row["C2"] = nl_dict["C2"]
