@@ -288,6 +288,8 @@ def _regression_label(valid, x_col, y_col):
     """Return (slope, intercept, title_str) or (None, None, reason_str)."""
     if len(valid) < 2:
         return None, None, f"n={len(valid)} (insufficient)"
+    if valid[x_col].nunique() == 1:
+        return None, None, f"n={len(valid)}, undefined (zero variance in x)"
     try:
         slope, intercept, pe_r, pe_p, _ = stats.linregress(valid[x_col], valid[y_col])
         sp_r, sp_p = stats.spearmanr(valid[x_col], valid[y_col])
