@@ -46,6 +46,9 @@ class PiecewiseModel(Protocol):
     def validate_params(self, nonlinear_params: list[float], changepoints: list[float]) -> bool:
         ...
 
+    def format_params(self, row) -> str:
+        ...
+
 
 # ---- 2-Phase Models ----
 
@@ -78,6 +81,9 @@ class TwoPhaseSharedAC:
         )
         return [np.ones_like(t), f]  # alpha + beta * f
 
+    def format_params(self, row) -> str:
+        return f"A={row['A']:.3g}  γ={row['gamma']:.3g}  C={row['C']:.3g}  λ={row['lam']:.3g}B  t1={row['t_change']:.3g}B"
+
 
 class TwoPhasePerLangAC:
     nonlinear_param_names = ["gamma", "lam"]
@@ -101,6 +107,9 @@ class TwoPhasePerLangAC:
         dt = np.maximum(t - t_change, 0.0)
         phase2 = np.where(t <= t_change, 0.0, 1.0 - np.exp(-dt / lam))
         return [np.ones_like(t), phase1, phase2]  # alpha + A * phase1 + C * phase2
+
+    def format_params(self, row) -> str:
+        return f"γ={row['gamma']:.3g}  λ={row['lam']:.3g}B  t1={row['t_change']:.3g}B"
 
 
 # ---- 3-Phase Models ----
@@ -140,6 +149,9 @@ class ThreePhaseSharedAC:
                      np.where(t <= t2, phase2_val, phase3_val))
         return [np.ones_like(t), f]  # alpha + beta * f
 
+    def format_params(self, row) -> str:
+        return f"A={row['A']:.3g}  γ={row['gamma']:.3g}  C2={row['C2']:.3g}  λ2={row['lam2']:.3g}B  C3={row['C3']:.3g}  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
+
 
 class ThreePhasePerLangAC:
     nonlinear_param_names = ["gamma", "lam2", "lam3"]
@@ -169,6 +181,9 @@ class ThreePhasePerLangAC:
         phase2_b = np.where(t <= t1, 0.0, 1.0 - np.exp(-dt2 / lam2))
         phase3_b = np.where(t <= t2, 0.0, 1.0 - np.exp(-dt3 / lam3))
         return [np.ones_like(t), phase1_b, phase2_b, phase3_b]
+
+    def format_params(self, row) -> str:
+        return f"γ={row['gamma']:.3g}  λ2={row['lam2']:.3g}B  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
 
 
 class ThreePhaseDualTailAC:
@@ -212,6 +227,9 @@ class ThreePhaseDualTailAC:
         with np.errstate(over='ignore'):
             phase3_growth = np.where(t <= t2, 0.0, np.exp(dt3 / lam3) - 1.0)
         return [np.ones_like(t), phase1_b, phase2_b, phase3_decay, phase3_growth]
+
+    def format_params(self, row) -> str:
+        return f"γ={row['gamma']:.3g}  λ2={row['lam2']:.3g}B  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
 
 
 class ThreePhaseDualLamAC:
@@ -257,8 +275,126 @@ class ThreePhaseDualLamAC:
             phase3_growth = np.where(t <= t2, 0.0, np.exp(dt3 / lam3_growth) - 1.0)
         return [np.ones_like(t), phase1_b, phase2_b, phase3_decay, phase3_growth]
 
+    def format_params(self, row) -> str:
+        return f"γ={row['gamma']:.3g}  λ2={row['lam2']:.3g}B  λ3d={row['lam3_decay']:.3g}B  λ3g={row['lam3_growth']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
+
 
 # ---- Fitting Engine ----
+
+def _unpack_params(x: np.ndarray, fixed_changepoints: list[float | None]) -> tuple[list[float], list[float]]:
+    x_list = list(x)
+    cps = []
+    for fixed_cp in fixed_changepoints:
+        if fixed_cp is not None:
+            cps.append(fixed_cp)
+        else:
+            cps.append(x_list.pop())
+    return x_list, cps
+
+
+def _fit_coeffs(
+    X: np.ndarray,
+    R: np.ndarray,
+    lb: list[float] | None,
+    ub: list[float] | None,
+    exclusive: list[list[int]] | None,
+) -> np.ndarray:
+    if lb is None:
+        coeffs, _, _, _ = np.linalg.lstsq(X, R, rcond=None)
+        return coeffs
+    coeffs = lsq_linear(X, R, bounds=(lb, ub)).x
+    if exclusive:
+        for group in exclusive:
+            if sum(1 for i in group if abs(coeffs[i]) > 1e-10) > 1:
+                best_sse = np.inf
+                best_coeffs = coeffs
+                zero_set = set(group)
+                for keep_i in group:
+                    keep_cols = [c for c in range(X.shape[1]) if c not in zero_set or c == keep_i]
+                    X_sel = X[:, keep_cols]
+                    c_red = lsq_linear(X_sel, R, bounds=([lb[c] for c in keep_cols], [ub[c] for c in keep_cols])).x
+                    c_sel = np.zeros(len(coeffs))
+                    for idx, c in enumerate(keep_cols):
+                        c_sel[c] = c_red[idx]
+                    res = R - X @ c_sel
+                    sse = float(np.dot(res, res))
+                    if sse < best_sse:
+                        best_sse = sse
+                        best_coeffs = c_sel
+                coeffs = best_coeffs
+    return coeffs
+
+
+def _build_bounds(
+    model: PiecewiseModel,
+    t_min: float,
+    t_max: float,
+    fixed_changepoints: list[float | None],
+) -> list[tuple[float, float]]:
+    n = len(fixed_changepoints)
+    dummy_cps = [cp if cp is not None else t_min + (t_max - t_min) * (i + 1) / (n + 1)
+                 for i, cp in enumerate(fixed_changepoints)]
+    bounds = model.get_bounds(t_min, t_max, dummy_cps)
+    # 1e-4 T is 100M tokens — small enough margin for both T and B scales.
+    margin = 1e-4
+    for cp in fixed_changepoints:
+        if cp is None:
+            bounds.append((t_min + margin, t_max - margin))
+    return bounds
+
+
+def _total_sse(
+    x: np.ndarray,
+    model: PiecewiseModel,
+    t_by_lang: dict[str, np.ndarray],
+    R_by_lang: dict[str, np.ndarray],
+    fixed_changepoints: list[float | None],
+    lb: list[float] | None,
+    ub: list[float] | None,
+    exclusive: list[list[int]] | None,
+) -> float:
+    nonlinear, cps = _unpack_params(x, fixed_changepoints)
+    if not model.validate_params(nonlinear, cps):
+        return 1e18
+    sse = 0.0
+    for lang in t_by_lang:
+        basis = model.evaluate_basis(t_by_lang[lang], nonlinear, cps)
+        if any(not np.all(np.isfinite(b)) or np.max(np.abs(b)) > 1e15 for b in basis):
+            return 1e18
+        X = np.column_stack(basis)
+        coeffs = _fit_coeffs(X, R_by_lang[lang], lb, ub, exclusive)
+        residuals = R_by_lang[lang] - X @ coeffs
+        sse += float(np.dot(residuals, residuals))
+    return sse
+
+
+def _collect_lang_results(
+    model: PiecewiseModel,
+    t_by_lang: dict[str, np.ndarray],
+    R_by_lang: dict[str, np.ndarray],
+    nonlinear: list[float],
+    cps: list[float],
+    lb: list[float] | None,
+    ub: list[float] | None,
+    exclusive: list[list[int]] | None,
+) -> dict[str, dict]:
+    lang_results = {}
+    for lang in t_by_lang:
+        basis = model.evaluate_basis(t_by_lang[lang], nonlinear, cps)
+        X = np.column_stack(basis)
+        R = R_by_lang[lang]
+        coeffs = _fit_coeffs(X, R, lb, ub, exclusive)
+        residuals = R - X @ coeffs
+        sse = float(np.dot(residuals, residuals))
+        ss_tot = float(np.sum((R - R.mean()) ** 2))
+        r2 = 1.0 - sse / ss_tot if ss_tot > 0 else float("nan")
+        lang_results[lang] = {
+            "linear_params": dict(zip(model.linear_param_names, coeffs)),
+            "sse": sse,
+            "r2": r2,
+        }
+    return lang_results
+
 
 def fit_engine(
     model: PiecewiseModel,
@@ -269,100 +405,20 @@ def fit_engine(
     t_max: float,
     seed: int = 0
 ):
-    n_changepoints = len(fixed_changepoints)
+    lb = [b[0] for b in model.linear_bounds] if hasattr(model, 'linear_bounds') and model.linear_bounds is not None else None
+    ub = [b[1] for b in model.linear_bounds] if hasattr(model, 'linear_bounds') and model.linear_bounds is not None else None
+    exclusive = getattr(model, 'linear_exclusive_groups', None) if lb is not None else None
 
-    # Precompute constraint info once so closures don't recompute per call.
-    _lb = [b[0] for b in model.linear_bounds] if hasattr(model, 'linear_bounds') and model.linear_bounds is not None else None
-    _ub = [b[1] for b in model.linear_bounds] if hasattr(model, 'linear_bounds') and model.linear_bounds is not None else None
-    _exclusive = getattr(model, 'linear_exclusive_groups', None) if _lb is not None else None
-
-    def unpack_params(x: np.ndarray) -> tuple[list[float], list[float]]:
-        x_list = list(x)
-        cps = []
-        for fixed_cp in fixed_changepoints:
-            if fixed_cp is not None:
-                cps.append(fixed_cp)
-            else:
-                cps.append(x_list.pop())
-        return x_list, cps
-
-    def fit_coeffs(X: np.ndarray, R: np.ndarray) -> np.ndarray:
-        """Fit linear coefficients with optional sign bounds and exclusive-branch selection."""
-        if _lb is not None:
-            coeffs = lsq_linear(X, R, bounds=(_lb, _ub)).x
-            if _exclusive:
-                for group in _exclusive:
-                    if sum(1 for i in group if abs(coeffs[i]) > 1e-10) > 1:
-                        best_sse = np.inf
-                        best_coeffs = coeffs
-                        zero_set = set(group)
-                        for keep_i in group:
-                            keep_cols = [c for c in range(X.shape[1]) if c not in zero_set or c == keep_i]
-                            X_sel = X[:, keep_cols]
-                            c_red = lsq_linear(X_sel, R, bounds=([_lb[c] for c in keep_cols], [_ub[c] for c in keep_cols])).x
-                            c_sel = np.zeros(len(coeffs))
-                            for idx, c in enumerate(keep_cols):
-                                c_sel[c] = c_red[idx]
-                            res = R - X @ c_sel
-                            sse = float(np.dot(res, res))
-                            if sse < best_sse:
-                                best_sse = sse
-                                best_coeffs = c_sel
-                        coeffs = best_coeffs
-            return coeffs
-        coeffs, _, _, _ = np.linalg.lstsq(X, R, rcond=None)
-        return coeffs
-
-    def total_sse(x: np.ndarray) -> float:
-        nonlinear, cps = unpack_params(x)
-        if not model.validate_params(nonlinear, cps):
-            return 1e18
-        sse = 0.0
-        for lang in t_by_lang:
-            basis = model.evaluate_basis(t_by_lang[lang], nonlinear, cps)
-            if any(not np.all(np.isfinite(b)) or np.max(np.abs(b)) > 1e15 for b in basis):
-                return 1e18
-            X = np.column_stack(basis)
-            coeffs = fit_coeffs(X, R_by_lang[lang])
-            residuals = R_by_lang[lang] - X @ coeffs
-            sse += float(np.dot(residuals, residuals))
-        return sse
-
-    # Construct bounds dynamically using dummy fixed changepoints if needed for bounds estimation
-    dummy_cps = [cp if cp is not None else t_min + (t_max - t_min) * (i + 1) / (n_changepoints + 1)
-                 for i, cp in enumerate(fixed_changepoints)]
-    bounds = model.get_bounds(t_min, t_max, dummy_cps)
-
-    # We add a tiny margin to prevent bounds from collapsing or exceeding data exactly.
-    # 1e-4 T is 100M tokens, which is safely small enough for both T and B scales.
-    margin = 1e-4
-    for cp in fixed_changepoints:
-        if cp is None:
-            bounds.append((t_min + margin, t_max - margin))
-
+    bounds = _build_bounds(model, t_min, t_max, fixed_changepoints)
     result = differential_evolution(
-        total_sse, bounds=bounds, seed=seed,
+        _total_sse, bounds=bounds, seed=seed,
+        args=(model, t_by_lang, R_by_lang, fixed_changepoints, lb, ub, exclusive),
         maxiter=2000, tol=1e-10, mutation=(0.5, 1.5), recombination=0.7,
-        popsize=20, polish=True, workers=1
+        popsize=20, polish=True, workers=1,
     )
 
-    best_nonlinear, best_cps = unpack_params(result.x)
-
-    # Final OLS pass to extract per-language linear params
-    lang_results = {}
-    for lang in t_by_lang:
-        basis = model.evaluate_basis(t_by_lang[lang], best_nonlinear, best_cps)
-        X = np.column_stack(basis)
-        R = R_by_lang[lang]
-        coeffs = fit_coeffs(X, R)
-        residuals = R - X @ coeffs
-        sse = float(np.dot(residuals, residuals))
-        R_mean = R.mean()
-        ss_tot = float(np.sum((R - R_mean) ** 2))
-        r2 = 1.0 - sse / ss_tot if ss_tot > 0 else float("nan")
-        linear_params = dict(zip(model.linear_param_names, coeffs))
-        lang_results[lang] = {"linear_params": linear_params, "sse": sse, "r2": r2}
-
+    best_nonlinear, best_cps = _unpack_params(result.x, fixed_changepoints)
+    lang_results = _collect_lang_results(model, t_by_lang, R_by_lang, best_nonlinear, best_cps, lb, ub, exclusive)
     return best_nonlinear, best_cps, lang_results
 
 
@@ -415,18 +471,14 @@ def fit_rankme_from_df(
             "sse": res["sse"]
         }
         
-        # Unpack non-linear params and scale back
         nl_dict = dict(zip(model.nonlinear_param_names, best_nonlinear))
-        if "gamma" in nl_dict: row["gamma"] = nl_dict["gamma"]
-        if "lam" in nl_dict: row["lam"] = nl_dict["lam"] * t_scale
-        if "lam2" in nl_dict: row["lam2"] = nl_dict["lam2"] * t_scale
-        if "lam3" in nl_dict: row["lam3"] = nl_dict["lam3"] * t_scale
-        if "lam3_decay" in nl_dict: row["lam3_decay"] = nl_dict["lam3_decay"] * t_scale
-        if "lam3_growth" in nl_dict: row["lam3_growth"] = nl_dict["lam3_growth"] * t_scale
-        if "A" in nl_dict: row["A"] = nl_dict["A"] * (t_scale ** nl_dict.get("gamma", 0))
-        if "C" in nl_dict: row["C"] = nl_dict["C"]
-        if "C2" in nl_dict: row["C2"] = nl_dict["C2"]
-        if "C3" in nl_dict: row["C3"] = nl_dict["C3"]
+        for name, val in nl_dict.items():
+            if name.startswith("lam"):
+                row[name] = val * t_scale
+            elif name == "A":
+                row[name] = val * (t_scale ** nl_dict.get("gamma", 0))
+            else:
+                row[name] = val
 
         # Unpack linear params and scale back A if it was a linear param
         lin_dict = res["linear_params"]
@@ -434,14 +486,9 @@ def fit_rankme_from_df(
         if "A" in lin_dict and "gamma" in nl_dict:
             row["A"] = lin_dict["A"] * (t_scale ** nl_dict["gamma"])
 
-        # Add changepoints dynamically based on how many were passed
-        if len(best_cps) > 0:
-            row["t_change"] = best_cps[0] * t_scale
-        if len(best_cps) > 1:
-            row["t_change2"] = best_cps[1] * t_scale
-        # If there are more than 2, dynamically add t_change3, t_change4, etc.
-        for i in range(2, len(best_cps)):
-            row[f"t_change{i+1}"] = best_cps[i] * t_scale
+        for i, cp in enumerate(best_cps):
+            key = "t_change" if i == 0 else f"t_change{i + 1}"
+            row[key] = cp * t_scale
 
         rows.append(row)
 
@@ -543,23 +590,8 @@ def plot_fitted_laws(
     for j in range(len(languages), len(axes.flat)):
         axes.flat[j].set_visible(False)
 
-    # Extract first row params for title
     r0 = params_df.iloc[0]
-    param_strs = []
-    
-    # Try to build a pretty title from the parameters that exist
-    if hasattr(r0, 'A'): param_strs.append(f"A={r0.A:.3g}")
-    if hasattr(r0, 'gamma'): param_strs.append(f"γ={r0.gamma:.3g}")
-    if hasattr(r0, 'C'): param_strs.append(f"C={r0.C:.3g}")
-    if hasattr(r0, 'C2'): param_strs.append(f"C2={r0.C2:.3g}")
-    if hasattr(r0, 'C3'): param_strs.append(f"C3={r0.C3:.3g}")
-    if hasattr(r0, 'lam'): param_strs.append(f"λ={r0.lam:.3g}B")
-    if hasattr(r0, 'lam2'): param_strs.append(f"λ2={r0.lam2:.3g}B")
-    if hasattr(r0, 'lam3'): param_strs.append(f"λ3={r0.lam3:.3g}B")
-    if hasattr(r0, 't_change'): param_strs.append(f"t1={r0.t_change:.3g}B")
-    if hasattr(r0, 't_change2'): param_strs.append(f"t2={r0.t_change2:.3g}B")
-    
-    param_str = "  ".join(param_strs)
+    param_str = model.format_params(r0)
     model_tag = model.__class__.__name__
             
     fig.suptitle(f"{layer} / {aggregation} / {model_tag}\n{param_str}", fontsize=10)
