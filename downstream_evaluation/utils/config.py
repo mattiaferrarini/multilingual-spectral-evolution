@@ -12,20 +12,20 @@ import yaml
 
 _MODEL_CONFIGS = {
     "fuxi": {
-        "rankme_csv": Path("../results/fuxi.csv"),
-        "merged_csv": Path("../results/fuxi_merged.csv"),
+        "rankme_csv": Path("../results/fuxi_fine_wiki.csv"),
+        "merged_csv": Path("../results/fuxi_fine_wiki_merged.csv"),
         "layer":      "layer_29",
         "label":      "FuxiTranyu-8B",
     },
     "fuxi_intermediate": {
-        "rankme_csv": Path("../results/fuxi.csv"),
+        "rankme_csv": Path("../results/fuxi_fine_wiki.csv"),
         "merged_csv": Path("../results/fuxi_intermediate_merged.csv"),
         "layer":      "layer_29",
         "label":      "FuxiTranyu-8B (intermediate)",
     },
     "apertus": {
-        "rankme_csv": Path("../results/apertus.csv"),
-        "merged_csv": Path("../results/apertus_merged.csv"),
+        "rankme_csv": Path("../results/apertus_fine_wiki.csv"),
+        "merged_csv": Path("../results/apertus_fine_wiki_merged.csv"),
         "layer":      "layer_31",
         "label":      "Apertus-8B-2509",
     },

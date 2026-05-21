@@ -1,7 +1,7 @@
 """
 Data loading utilities for the downstream evaluation pipeline.
 
-Loads the RankMe geometry CSV (fuxi.csv / apertus.csv) and the merged
+Loads the RankMe geometry CSV (fuxi_fine_wiki.csv / apertus_fine_wiki.csv) and the merged
 evaluation CSV produced by merge_results.py, returning clean DataFrames
 ready for analysis.
 """
