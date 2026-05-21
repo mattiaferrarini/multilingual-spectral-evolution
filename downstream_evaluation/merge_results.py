@@ -154,6 +154,15 @@ def merge_with_rankme(
     df_rankme["rankme_aggregation"] = aggregation
     logger.info(f"After filtering ({layer}, agg={aggregation}): {len(df_rankme)} rows")
 
+    # Keep only eval rows whose checkpoint appears in the RankMe CSV so that
+    # a shared eval dir (containing multiple models) doesn't bleed across models.
+    known_checkpoints = set(df_rankme["checkpoint"].unique())
+    n_before = len(df_eval)
+    df_eval = df_eval[df_eval["checkpoint"].isin(known_checkpoints)].copy()
+    n_dropped = n_before - len(df_eval)
+    if n_dropped:
+        logger.info(f"Filtered out {n_dropped} eval rows from other models (not in RankMe CSV).")
+
     # Drop layer/aggregation — already stored in rankme_layer/rankme_aggregation.
     # Keep all metric columns (rankme, pr, alpha_req, top_k_var, …).
     rankme_cols = [c for c in df_rankme.columns if c not in ("layer", "aggregation")]
