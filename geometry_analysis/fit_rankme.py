@@ -501,6 +501,7 @@ def plot_fitted_laws(
     model: PiecewiseModel,
     metric: str = "rankme",
     output_path: str | None = None,
+    languages: list[str] | None = None,
 ) -> None:
     import matplotlib.pyplot as plt
     import os
@@ -514,7 +515,9 @@ def plot_fitted_laws(
     work = work.dropna(subset=["t", metric])
     subset = work[(work["layer"] == layer) & (work["aggregation"] == aggregation)]
 
-    languages = list(params_df["language"])
+    if languages is None:
+        languages = list(params_df["language"])
+    params_df = params_df[params_df["language"].isin(languages)].set_index("language").loc[languages].reset_index()
     t_by_lang = {}
     R_by_lang = {}
     for lang in languages:
