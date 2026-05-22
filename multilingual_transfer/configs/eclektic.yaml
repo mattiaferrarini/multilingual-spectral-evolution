@@ -9,6 +9,10 @@ max_questions: null
 
 output_dir: results/eclektic
 
+# Evaluation methods to run (any combination of: llm, string)
+eval_method:
+  - llm
+
 generation:
   temperature: 0.7
   n_generations: 1  # set > 1 to estimate std across independent samples
