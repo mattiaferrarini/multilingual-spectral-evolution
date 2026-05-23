@@ -52,40 +52,39 @@ class PiecewiseModel(Protocol):
 
 # ---- 2-Phase Models ----
 
-class TwoPhaseSharedAC:
-    nonlinear_param_names = ["A", "gamma", "C", "lam"]
+class FuxiSharedACModel:
+    nonlinear_param_names = ["gamma", "C", "lam"]
     linear_param_names = ["alpha", "beta"]
 
     def get_bounds(self, t_min: float, t_max: float, changepoints: list[float]) -> list[tuple[float, float]]:
         lam_max = max(t_max - changepoints[0], 0.1)
         return [
-            (1e-6, 1e10),     # A
             (0.01, 5.0),      # gamma
             (-1e10, 1e10),    # C
             (0.01, lam_max),  # lam
         ]
 
     def validate_params(self, nonlinear_params: list[float], changepoints: list[float]) -> bool:
-        A, gamma, C, lam = nonlinear_params
-        return A > 0.0 and gamma > 0.0 and lam > 0.0
+        gamma, C, lam = nonlinear_params
+        return gamma > 0.0 and lam > 0.0
 
     def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
-        A, gamma, C, lam = nonlinear_params
+        gamma, C, lam = nonlinear_params
         t_change = changepoints[0]
-        plateau = A * t_change ** (-gamma)
+        plateau = t_change ** (-gamma)
         dt = np.maximum(t - t_change, 0.0)
         f = np.where(
             t <= t_change,
-            A * np.power(t, -gamma),
+            np.power(t, -gamma),
             plateau + C * (1.0 - np.exp(-dt / lam)),
         )
         return [np.ones_like(t), f]  # alpha + beta * f
 
     def format_params(self, row) -> str:
-        return f"A={row['A']:.3g}  γ={row['gamma']:.3g}  C={row['C']:.3g}  λ={row['lam']:.3g}B  t1={row['t_change']:.3g}B"
+        return f"γ={row['gamma']:.3g}  C={row['C']:.3g}  λ={row['lam']:.3g}B  t1={row['t_change']:.3g}B"
 
 
-class TwoPhasePerLangAC:
+class FuxiPerLangACModel:
     nonlinear_param_names = ["gamma", "lam"]
     linear_param_names = ["alpha", "A", "C"]
 
@@ -114,8 +113,8 @@ class TwoPhasePerLangAC:
 
 # ---- 3-Phase Models ----
 
-class ThreePhaseSharedAC:
-    nonlinear_param_names = ["A", "gamma", "C2", "lam2", "C3", "lam3"]
+class ApertusSharedACModel:
+    nonlinear_param_names = ["gamma", "C2", "lam2", "C3", "lam3"]
     linear_param_names = ["alpha", "beta"]
 
     def get_bounds(self, t_min: float, t_max: float, changepoints: list[float]) -> list[tuple[float, float]]:
@@ -123,7 +122,6 @@ class ThreePhaseSharedAC:
         lam2_max = max(t2 - t1, 0.1)
         lam3_max = max(t_max - t2, 0.1)
         return [
-            (1e-6, 1e10),       # A
             (0.01, 5.0),        # gamma
             (-1e10, 1e10),      # C2
             (0.01, lam2_max),   # lam2
@@ -132,28 +130,28 @@ class ThreePhaseSharedAC:
         ]
 
     def validate_params(self, nonlinear_params: list[float], changepoints: list[float]) -> bool:
-        A, gamma, C2, lam2, C3, lam3 = nonlinear_params
+        gamma, C2, lam2, C3, lam3 = nonlinear_params
         t1, t2 = changepoints
-        return A > 0.0 and gamma > 0.0 and lam2 > 0.0 and lam3 > 0.0 and t1 < t2
+        return gamma > 0.0 and lam2 > 0.0 and lam3 > 0.0 and t1 < t2
 
     def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
-        A, gamma, C2, lam2, C3, lam3 = nonlinear_params
+        gamma, C2, lam2, C3, lam3 = nonlinear_params
         t1, t2 = changepoints
-        plateau1 = A * t1 ** (-gamma)
+        plateau1 = t1 ** (-gamma)
         dt2 = np.maximum(t - t1, 0.0)
         dt3 = np.maximum(t - t2, 0.0)
         phase2_val = plateau1 + C2 * (1.0 - np.exp(-dt2 / lam2))
         plateau2 = plateau1 + C2 * (1.0 - np.exp(-(t2 - t1) / lam2))
         phase3_val = plateau2 + C3 * (1.0 - np.exp(-dt3 / lam3))
-        f = np.where(t <= t1, A * np.power(t, -gamma),
+        f = np.where(t <= t1, np.power(t, -gamma),
                      np.where(t <= t2, phase2_val, phase3_val))
         return [np.ones_like(t), f]  # alpha + beta * f
 
     def format_params(self, row) -> str:
-        return f"A={row['A']:.3g}  γ={row['gamma']:.3g}  C2={row['C2']:.3g}  λ2={row['lam2']:.3g}B  C3={row['C3']:.3g}  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
+        return f"γ={row['gamma']:.3g}  C2={row['C2']:.3g}  λ2={row['lam2']:.3g}B  C3={row['C3']:.3g}  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
 
 
-class ThreePhasePerLangAC:
+class ApertusPerLangACModel:
     nonlinear_param_names = ["gamma", "lam2", "lam3"]
     linear_param_names = ["alpha", "A", "C2", "C3"]
 
@@ -186,7 +184,7 @@ class ThreePhasePerLangAC:
         return f"γ={row['gamma']:.3g}  λ2={row['lam2']:.3g}B  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
 
 
-class ThreePhaseDualTailAC:
+class ApertusDualTailACModel:
     nonlinear_param_names = ["gamma", "lam2", "lam3"]
     linear_param_names = ["alpha", "A", "C2", "C3_decay", "C3_growth"]
     linear_bounds = [
@@ -232,7 +230,7 @@ class ThreePhaseDualTailAC:
         return f"γ={row['gamma']:.3g}  λ2={row['lam2']:.3g}B  λ3={row['lam3']:.3g}B  t1={row['t_change']:.3g}B  t2={row['t_change2']:.3g}B"
 
 
-class ThreePhaseDualLamAC:
+class ApertusDualLamACModel:
     """Like ThreePhaseDualTailAC but with separate lam3_decay / lam3_growth so each
     regime has its own characteristic timescale.  Branch exclusivity is still enforced
     per language during fitting."""
@@ -472,11 +470,18 @@ def fit_rankme_from_df(
         }
         
         nl_dict = dict(zip(model.nonlinear_param_names, best_nonlinear))
+        gamma_val = nl_dict.get("gamma", 0)
+        # Models without A in nonlinear params: the basis is t^(-gamma) in scaled units,
+        # so C params are expressed in those units and need dividing by t_scale^gamma,
+        # while beta must be multiplied by t_scale^gamma so plot_fitted_laws (B units) is correct.
+        no_A_shared = "A" not in nl_dict and "beta" in model.linear_param_names
         for name, val in nl_dict.items():
             if name.startswith("lam"):
                 row[name] = val * t_scale
             elif name == "A":
-                row[name] = val * (t_scale ** nl_dict.get("gamma", 0))
+                row[name] = val * (t_scale ** gamma_val)
+            elif no_A_shared and name.startswith("C"):
+                row[name] = val / (t_scale ** gamma_val)
             else:
                 row[name] = val
 
@@ -484,7 +489,9 @@ def fit_rankme_from_df(
         lin_dict = res["linear_params"]
         row.update(lin_dict)
         if "A" in lin_dict and "gamma" in nl_dict:
-            row["A"] = lin_dict["A"] * (t_scale ** nl_dict["gamma"])
+            row["A"] = lin_dict["A"] * (t_scale ** gamma_val)
+        if no_A_shared and "beta" in lin_dict:
+            row["beta"] = lin_dict["beta"] * (t_scale ** gamma_val)
 
         for i, cp in enumerate(best_cps):
             key = "t_change" if i == 0 else f"t_change{i + 1}"
