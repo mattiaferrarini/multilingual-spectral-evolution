@@ -102,10 +102,11 @@ class FuxiPerLangACModel:
     def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
         gamma, lam = nonlinear_params
         t_change = changepoints[0]
-        phase1 = np.power(t, -gamma)
+        plateau1 = t_change ** (-gamma)
+        phase1_b = np.where(t <= t_change, np.power(t, -gamma), plateau1)
         dt = np.maximum(t - t_change, 0.0)
-        phase2 = np.where(t <= t_change, 0.0, 1.0 - np.exp(-dt / lam))
-        return [np.ones_like(t), phase1, phase2]  # alpha + A * phase1 + C * phase2
+        phase2_b = np.where(t <= t_change, 0.0, 1.0 - np.exp(-dt / lam))
+        return [np.ones_like(t), phase1_b, phase2_b]  # alpha + A * phase1 + C * phase2
 
     def format_params(self, row) -> str:
         return f"γ={row['gamma']:.3g}  λ={row['lam']:.3g}B  t1={row['t_change']:.3g}B"
@@ -173,10 +174,12 @@ class ApertusPerLangACModel:
     def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
         gamma, lam2, lam3 = nonlinear_params
         t1, t2 = changepoints
-        phase1_b = np.power(t, -gamma)
+        plateau1 = t1 ** (-gamma)
+        phase1_b = np.where(t <= t1, np.power(t, -gamma), plateau1)
         dt2 = np.maximum(t - t1, 0.0)
+        plateau2 = 1.0 - np.exp(-(t2 - t1) / lam2)
+        phase2_b = np.where(t <= t1, 0.0, np.where(t <= t2, 1.0 - np.exp(-dt2 / lam2), plateau2))
         dt3 = np.maximum(t - t2, 0.0)
-        phase2_b = np.where(t <= t1, 0.0, 1.0 - np.exp(-dt2 / lam2))
         phase3_b = np.where(t <= t2, 0.0, 1.0 - np.exp(-dt3 / lam3))
         return [np.ones_like(t), phase1_b, phase2_b, phase3_b]
 
@@ -217,10 +220,12 @@ class ApertusDualTailACModel:
     def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
         gamma, lam2, lam3 = nonlinear_params
         t1, t2 = changepoints
-        phase1_b = np.power(t, -gamma)
+        plateau1 = t1 ** (-gamma)
+        phase1_b = np.where(t <= t1, np.power(t, -gamma), plateau1)
         dt2 = np.maximum(t - t1, 0.0)
+        plateau2 = 1.0 - np.exp(-(t2 - t1) / lam2)
+        phase2_b = np.where(t <= t1, 0.0, np.where(t <= t2, 1.0 - np.exp(-dt2 / lam2), plateau2))
         dt3 = np.maximum(t - t2, 0.0)
-        phase2_b = np.where(t <= t1, 0.0, 1.0 - np.exp(-dt2 / lam2))
         phase3_decay = np.where(t <= t2, 0.0, 1.0 - np.exp(-dt3 / lam3))
         with np.errstate(over='ignore'):
             phase3_growth = np.where(t <= t2, 0.0, np.exp(dt3 / lam3) - 1.0)
@@ -264,10 +269,12 @@ class ApertusDualLamACModel:
     def evaluate_basis(self, t: np.ndarray, nonlinear_params: list[float], changepoints: list[float]) -> list[np.ndarray]:
         gamma, lam2, lam3_decay, lam3_growth = nonlinear_params
         t1, t2 = changepoints
-        phase1_b = np.power(t, -gamma)
+        plateau1 = t1 ** (-gamma)
+        phase1_b = np.where(t <= t1, np.power(t, -gamma), plateau1)
         dt2 = np.maximum(t - t1, 0.0)
+        plateau2 = 1.0 - np.exp(-(t2 - t1) / lam2)
+        phase2_b = np.where(t <= t1, 0.0, np.where(t <= t2, 1.0 - np.exp(-dt2 / lam2), plateau2))
         dt3 = np.maximum(t - t2, 0.0)
-        phase2_b = np.where(t <= t1, 0.0, 1.0 - np.exp(-dt2 / lam2))
         phase3_decay = np.where(t <= t2, 0.0, 1.0 - np.exp(-dt3 / lam3_decay))
         with np.errstate(over='ignore'):
             phase3_growth = np.where(t <= t2, 0.0, np.exp(dt3 / lam3_growth) - 1.0)
