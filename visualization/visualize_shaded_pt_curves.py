@@ -358,6 +358,8 @@ def show_training_curves(
     changepoints=None,
     tick_step=None,
     main_value=None,
+    path=None,
+    img_format="png",
 ):
     """Display training-curve plots inline (designed for Jupyter notebooks).
 
@@ -371,6 +373,9 @@ def show_training_curves(
         changepoints instead of auto-detecting them.  When provided, each segment's
         direction is determined by the mean derivative within that segment rather
         than endpoint comparison.
+    path: directory where plots are saved. When provided each plot is saved as
+        {path}/{metric}_{layer}_{aggregation}.{img_format} before being shown.
+    img_format: image format passed to savefig (e.g. "png", "pdf", "svg").
     """
     all_checkpoints = _sort_checkpoints(df["checkpoint"].unique())
     numeric_ckpts = [c for c in all_checkpoints if str(c).lower() != "main"]
@@ -425,6 +430,10 @@ def show_training_curves(
                 _annotate_endpoints(ax, endpoints)
                 _setup_axes(ax, tick_positions, tick_labels, left_x, metric_label, layer, agg, model_label)
                 plt.tight_layout()
+                if path is not None:
+                    os.makedirs(path, exist_ok=True)
+                    filename = f"{metric}_{layer}_{agg}_{normalize}.{img_format}"
+                    plt.savefig(os.path.join(path, filename), format=img_format)
                 plt.show()
 
 
