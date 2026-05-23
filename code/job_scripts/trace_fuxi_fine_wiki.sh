@@ -25,11 +25,11 @@ GASPAR="${GASPAR:-}"                       # Define it in .env
 GROUP="${GROUP:-g33}"                      # Define in .env or default here
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"       # Define it in .env
 REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
-CONFIG_PATH="geometry_analysis/configs/fuxi_flores.yaml"
+CONFIG_PATH="code/geometry_analysis/configs/fuxi_fine_wiki.yaml"
 # ==============================================
 
 # Edit this for your project. Keep outputs/checkpoints under /scratch.
-TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && python geometry_analysis/geometry_analysis.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
+TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && python code/geometry_analysis/geometry_analysis.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
 
 if [[ -z "${GASPAR}" ]]; then
     echo "ERROR: GASPAR environment variable is not set. Please define it in the .env file." >&2
