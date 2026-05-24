@@ -1,16 +1,35 @@
 """
-Training phase identification from RankMe trajectories.
+RankMe geometry metrics from training trajectories.
 
-Detects two phases in the RankMe curve for each language:
-  - Entropy-seeking: RankMe rises from the first checkpoint to its global peak.
-  - Compression-seeking: RankMe falls from the peak to the end of training.
+For each language, identifies the peak token count and computes magnitude-based
+metrics: initial richness, valley of first descent (K=2 robust), final richness,
+and the initial drop rate.
 
-The main entry point is compute_phases(), which returns a DataFrame with onset
-and duration (in billions of tokens) for each phase and language.
+The main entry point is compute_geometry(), which returns a DataFrame with one
+row per language.
 """
 
 import numpy as np
 import pandas as pd
+
+
+def _find_first_descent_valley(rv: np.ndarray, tc: np.ndarray) -> tuple:
+    """
+    Find the bottom of the first monotonic descent using K=2 robustness.
+
+    Scans forward from index 0. The valley is the first index i where both
+    rv[i+1] > rv[i] and rv[i+2] > rv[i], meaning two consecutive subsequent
+    values both exceed rv[i]. This tolerates single noisy blips in the descent.
+
+    Returns (valley_idx, valley_tokens, valley_rankme).
+    Falls back to the last index if no such point is found (monotonic decline).
+    """
+    n = len(rv)
+    for i in range(n - 2):
+        if rv[i + 1] > rv[i] and rv[i + 2] > rv[i]:
+            return i, float(tc[i]), float(rv[i])
+    # Monotonically declining — valley is the last point
+    return n - 1, float(tc[n - 1]), float(rv[n - 1])
 
 
 def _identify_phases_single(rankme_values, token_counts: list) -> dict:
@@ -46,20 +65,22 @@ def _phase_duration(phases: dict, phase_name: str) -> float:
     return float(p[1] - p[0]) if p is not None else float("nan")
 
 
-def compute_phases(df_layer: pd.DataFrame, checkpoints_all: list,
-                   token_counts: list) -> pd.DataFrame:
+def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
+                     token_counts: list) -> pd.DataFrame:
     """
-    Identify entropy-seeking and compression-seeking phases for every language.
+    Compute RankMe geometry metrics for every language.
 
-    Returns df_phases with onset/duration columns and RankMe magnitude metrics:
-      rankme_first        — RankMe at the first checkpoint (initial richness)
-      rankme_last         — RankMe at the last checkpoint (final richness)
-      rankme_decline_rate — (rankme_first - rankme_last) / total_duration_B
-    First and last checkpoints are taken from checkpoints_all, so this works
-    for any model without hardcoding checkpoint names.
+    Returns df_geometry with one row per language and columns:
+      rankme_first             — RankMe at the first checkpoint (initial richness)
+      rankme_last              — RankMe at the last checkpoint (final richness)
+      rankme_valley            — RankMe at the bottom of the first descent
+      valley_tokens            — token count (B) at the valley of the first descent
+      rankme_initial_drop_rate — (rankme_first - rankme_valley) / (valley_tokens - first_tokens)
+                                 Rate of decline during the initial compression phase,
+                                 common to all languages and models. Uses K=2 valley
+                                 detection to tolerate single noisy blips in the descent.
     """
     tc = np.array(token_counts, dtype=float)
-    total_duration_b = float(tc[-1] - tc[0]) if len(tc) >= 2 else float("nan")
 
     records = []
     for lang in sorted(df_layer["dataset"].unique()):
@@ -68,24 +89,24 @@ def compute_phases(df_layer: pd.DataFrame, checkpoints_all: list,
                            for c in checkpoints_all], dtype=float)
         phases = _identify_phases_single(rv, token_counts)
 
-        # First and last non-NaN RankMe values along the trajectory
-        rankme_first = float(rv[0])   if not np.isnan(rv[0])  else float("nan")
-        rankme_last  = float(rv[-1])  if not np.isnan(rv[-1]) else float("nan")
-        if not np.isnan(rankme_first) and not np.isnan(rankme_last) and total_duration_b > 0:
-            rankme_decline_rate = (rankme_first - rankme_last) / total_duration_b
+        rankme_first = float(rv[0])  if not np.isnan(rv[0])  else float("nan")
+        rankme_last  = float(rv[-1]) if not np.isnan(rv[-1]) else float("nan")
+
+        valley_idx, valley_tokens, rankme_valley = _find_first_descent_valley(rv, tc)
+        duration_to_valley = valley_tokens - tc[0]
+        if (not np.isnan(rankme_first) and not np.isnan(rankme_valley)
+                and duration_to_valley > 0):
+            rankme_initial_drop_rate = (rankme_first - rankme_valley) / duration_to_valley
         else:
-            rankme_decline_rate = float("nan")
+            rankme_initial_drop_rate = float("nan")
 
         records.append({
-            "language": lang,
-            "phases":   phases,
-            "peak_tokens":                 phases["peak_tokens"],
-            "compression_onset_tokens":    _phase_onset(phases,   "compression_seeking"),
-            "compression_duration_tokens": _phase_duration(phases, "compression_seeking"),
-            "entropy_onset_tokens":        _phase_onset(phases,   "entropy_seeking"),
-            "entropy_duration_tokens":     _phase_duration(phases, "entropy_seeking"),
-            "rankme_first":        rankme_first,
-            "rankme_last":         rankme_last,
-            "rankme_decline_rate": rankme_decline_rate,
+            "language":                 lang,
+            "peak_tokens":              phases["peak_tokens"],
+            "rankme_first":             rankme_first,
+            "rankme_last":              rankme_last,
+            "rankme_valley":            rankme_valley,
+            "valley_tokens":            valley_tokens,
+            "rankme_initial_drop_rate": rankme_initial_drop_rate,
         })
     return pd.DataFrame(records)

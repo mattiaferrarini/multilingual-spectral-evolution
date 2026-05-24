@@ -64,7 +64,7 @@ def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
 
 
 def compute_correlations_table(df_grokking: pd.DataFrame,
-                                df_phases: pd.DataFrame) -> pd.DataFrame:
+                                df_geometry: pd.DataFrame) -> pd.DataFrame:
     """
     Compute Spearman + Pearson correlations: RankMe phase geometry → downstream accuracy.
 
@@ -73,24 +73,24 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
         languages peak at the same checkpoint, as in FuxiTranyu-8B)
       - RankMe at first checkpoint (initial representation richness per language)
       - RankMe at last checkpoint  (final representation richness per language)
-      - Rate of RankMe decline     (compression speed, Δ RankMe / B tokens)
+      - Valley of first descent     (token count at bottom of initial drop)
+      - Initial drop rate           (compression speed during first descent, Δ RankMe / B tokens)
 
     Returns df_correlations.
     """
-    phase_cols = ["language", "compression_onset_tokens", "compression_duration_tokens",
-                  "rankme_first", "rankme_last", "rankme_decline_rate"]
+    phase_cols = ["language", "valley_tokens",
+                  "rankme_first", "rankme_last", "rankme_initial_drop_rate"]
     records = []
     for task in ["m_mmlu", "xcopa"]:
         df_t = df_grokking[df_grokking["task"] == task]
         if df_t.empty:
             continue
-        merged = df_t.merge(df_phases[phase_cols], on="language", how="inner")
+        merged = df_t.merge(df_geometry[phase_cols], on="language", how="inner")
         for x_col, x_label in [
-            ("compression_onset_tokens",    "Compression onset (B)"),
-            ("compression_duration_tokens", "Compression duration (B)"),
-            ("rankme_first",                "RankMe at first ckpt"),
-            ("rankme_last",                 "RankMe at last ckpt"),
-            ("rankme_decline_rate",         "Rate of RankMe decline (1/B)"),
+            ("rankme_first",             "RankMe at first ckpt"),
+            ("valley_tokens",            "Valley of first descent (B)"),
+            ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
+            ("rankme_last",              "RankMe at last ckpt"),
         ]:
             for y_col, y_label in [("grokking_tokens", "Grokking onset (B)"),
                                     ("peak_accuracy",   "Peak accuracy")]:
