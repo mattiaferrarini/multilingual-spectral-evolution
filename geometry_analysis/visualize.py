@@ -673,7 +673,26 @@ def parse_args():
              "(e.g. --training-curves-gif-duration 10). Tip: combine with --shared-y-axis "
              "so all frames share the same scale.",
     )
+    p.add_argument(
+        "--limit-tokens", type=str, default=None, metavar="TOKENS",
+        help="Limit plots to checkpoints up to this token count (e.g. 500B or 1T). "
+             "Default: None (use all checkpoints).",
+    )
     return p.parse_args()
+
+
+def _parse_token_limit(limit_str):
+    """Parse a token limit string like '500B' or '1T' and return value in billions."""
+    if limit_str is None:
+        return None
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*([BT]?)$", limit_str.strip(), re.IGNORECASE)
+    if not m:
+        raise ValueError(f"Invalid token limit format: {limit_str}. Use e.g. '500B' or '1T'.")
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    if unit == "T":
+        val *= 1000
+    return val
 
 
 def main():
@@ -681,6 +700,16 @@ def main():
 
     df = pd.read_csv(args.csv)
     print(f"Loaded {len(df)} rows from {args.csv}")
+
+    # Apply token limit filter if specified
+    if args.limit_tokens:
+        limit_b = _parse_token_limit(args.limit_tokens)
+        df["checkpoint_tokens"] = df["checkpoint"].map(_ckpt_key)
+        initial_rows = len(df)
+        df = df[df["checkpoint_tokens"] <= limit_b]
+        filtered_rows = len(df)
+        print(f"Token limit: {args.limit_tokens} ({limit_b}B). Filtered from {initial_rows} to {filtered_rows} rows.")
+        df = df.drop(columns=["checkpoint_tokens"])
 
     metric_cols = [c for c in df.columns
                    if c not in {"checkpoint", "dataset", "layer", "aggregation"}]
