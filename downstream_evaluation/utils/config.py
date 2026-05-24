@@ -31,7 +31,7 @@ _MODEL_CONFIGS = {
     },
 }
 
-_BENCHMARKS_PATH = Path("configs/benchmarks.yaml")
+_BENCHMARKS_PATH = Path(__file__).parent.parent / "configs" / "benchmarks.yaml"
 
 # Grokking detection parameters — adjust here for ablation studies.
 _GROKKING_THRESHOLD  = 0.15  # accuracy must exceed random_chance + this value
