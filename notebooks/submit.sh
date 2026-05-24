@@ -49,7 +49,7 @@
 set -euo pipefail
 
 # ============== EDIT THESE LINES ==============
-GASPAR="pmazeved"              # <-- For local runs: your EPFL username. TAs may replace this for grading.
+GASPAR="jpazeved"              # <-- For local runs: your EPFL username. TAs may replace this for grading.
 GROUP="g33"                  # <-- REQUIRED FOR SUBMISSION: your team, e.g. g07.
 # ==============================================
 
@@ -104,10 +104,10 @@ runai submit \
   --command -- /bin/bash -lc "\
     mkdir -p /scratch/hf_cache /scratch/wandb && \
     ln -sf \"\$(command -v python3)\" /usr/local/bin/python && \
-    cd /scratch && \
+    [ -d /scratch/open-project-m2-jpmg ] || git clone https://github.com/CS-552/open-project-m2-jpmg.git /scratch/open-project-m2-jpmg && \
     jupyter lab \
       --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
-      --ServerApp.root_dir=/scratch \
+      --ServerApp.root_dir=/scratch/open-project-m2-jpmg \
       --ServerApp.token=\${JUPYTER_TOKEN:-cs552}"
 
 cat <<EOF
