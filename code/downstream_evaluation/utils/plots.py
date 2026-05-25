@@ -43,20 +43,56 @@ _MODEL_PALETTE = [
 
 # ── Per-model plots ────────────────────────────────────────────────────────────
 
+_COLOR_PRE  = "steelblue"
+_COLOR_POST = "seagreen"
+_COLOR_MIN  = "crimson"
+
+
 def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
                        langs_sorted, model_label, layer, aggregation, plots_dir,
-                       model_key="") -> None:
-    """Per-language RankMe trajectory across training checkpoints."""
+                       model_key="", df_geometry=None) -> None:
+    """
+    Per-language RankMe trajectory split into Pre-minimum and Post-minimum phases.
+
+    If df_geometry is provided (contains valley_tokens per language), each
+    trajectory is coloured in two segments separated at the valley, and the
+    minimum point is marked with a star. Otherwise falls back to a single colour.
+    """
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows), squeeze=False)
+
+    tc = np.array(token_counts, dtype=float)
+    valley_lookup = (
+        dict(zip(df_geometry["language"], df_geometry["valley_tokens"]))
+        if df_geometry is not None else {}
+    )
 
     for idx, lang in enumerate(langs_sorted):
         ax  = axes[idx // ncols][idx % ncols]
         sub = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
         rv  = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
                         for c in checkpoints_all])
-        ax.plot(token_counts, rv, marker="o", lw=2, color="steelblue", ms=5)
+
+        valley_tok = valley_lookup.get(lang)
+        if valley_tok is not None and not np.isnan(valley_tok):
+            v_idx = int(np.argmin(np.abs(tc - float(valley_tok))))
+
+            # Pre-minimum segment (first checkpoint … valley, inclusive)
+            ax.plot(tc[:v_idx + 1], rv[:v_idx + 1],
+                    marker="o", lw=2, color=_COLOR_PRE, ms=5)
+
+            # Post-minimum segment (valley … last checkpoint, inclusive)
+            if v_idx < len(tc) - 1:
+                ax.plot(tc[v_idx:], rv[v_idx:],
+                        marker="o", lw=2, color=_COLOR_POST, ms=5)
+
+            # Valley marker
+            ax.scatter([tc[v_idx]], [rv[v_idx]],
+                       s=180, color=_COLOR_MIN, marker="*", zorder=5)
+        else:
+            ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
+
         ax.set_title(lang, fontsize=10, fontweight="bold")
         apply_token_formatter(ax)
         ax.xaxis.label.set_size(8)
@@ -66,20 +102,36 @@ def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
     for idx in range(len(langs_sorted), nrows * ncols):
         axes[idx // ncols][idx % ncols].set_visible(False)
 
+    # Figure-level legend
+    pre_patch  = mpatches.Patch(color=_COLOR_PRE,  label="Pre-minimum")
+    post_patch = mpatches.Patch(color=_COLOR_POST, label="Post-minimum")
+    min_handle = plt.Line2D([0], [0], marker="*", color="w",
+                             markerfacecolor=_COLOR_MIN, markersize=13,
+                             label="Minimum")
+    fig.legend(handles=[pre_patch, post_patch, min_handle],
+               loc="lower right", fontsize=10, ncol=3,
+               framealpha=0.9, edgecolor="lightgray")
+
     fig.suptitle(f"[{model_label}] RankMe trajectories — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.04, 1, 1])
     suffix = f"_{model_key}" if model_key else ""
     path = Path(plots_dir) / f"rankme_phases{suffix}.png"
-    plt.savefig(path)
+    plt.savefig(path, dpi=120, bbox_inches="tight")
     plt.show()
     print(f"Saved: {path}")
 
 
 def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
                  checkpoints_all, token_counts, langs_sorted, model_label, plots_dir,
-                 model_key="") -> None:
-    """Dual-axis RankMe + accuracy overlay per language."""
+                 model_key="", df_geometry=None) -> None:
+    """Dual-axis RankMe + accuracy overlay per language, with pre/post-minimum colouring."""
+    tc = np.array(token_counts, dtype=float)
+    valley_lookup = (
+        dict(zip(df_geometry["language"], df_geometry["valley_tokens"]))
+        if df_geometry is not None else {}
+    )
+
     for task in ["m_mmlu", "xcopa"]:
         df_task = df_eval[df_eval["task"] == task]
         overlap = [l for l in task_languages[task]
@@ -99,9 +151,22 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
             sub = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
             rv  = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
                             for c in checkpoints_all])
-            ax.plot(token_counts, rv, marker="o", lw=2, color="steelblue", ms=5)
-            ax.set_ylabel("RankMe", color="steelblue", fontsize=8)
-            ax.tick_params(axis="y", colors="steelblue")
+
+            valley_tok = valley_lookup.get(lang)
+            if valley_tok is not None and not np.isnan(valley_tok):
+                v_idx = int(np.argmin(np.abs(tc - float(valley_tok))))
+                ax.plot(tc[:v_idx + 1], rv[:v_idx + 1],
+                        marker="o", lw=2, color=_COLOR_PRE, ms=5)
+                if v_idx < len(tc) - 1:
+                    ax.plot(tc[v_idx:], rv[v_idx:],
+                            marker="o", lw=2, color=_COLOR_POST, ms=5)
+                ax.scatter([tc[v_idx]], [rv[v_idx]],
+                           s=180, color=_COLOR_MIN, marker="*", zorder=5)
+            else:
+                ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
+
+            ax.set_ylabel("RankMe", color=_COLOR_PRE, fontsize=8)
+            ax.tick_params(axis="y", colors=_COLOR_PRE)
 
             sub_e = df_task[df_task["language"] == lang].sort_values(
                 "checkpoint", key=lambda s: s.map(ckpt_to_tokens))
@@ -127,12 +192,23 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
         for idx in range(len(overlap), nrows * ncols):
             axes[idx // ncols][idx % ncols].set_visible(False)
 
+        # Figure-level legend
+        pre_patch  = mpatches.Patch(color=_COLOR_PRE,  label="Pre-minimum (RankMe)")
+        post_patch = mpatches.Patch(color=_COLOR_POST, label="Post-minimum (RankMe)")
+        min_handle = plt.Line2D([0], [0], marker="*", color="w",
+                                 markerfacecolor=_COLOR_MIN, markersize=13, label="Minimum")
+        acc_handle = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
+                                 marker="s", markersize=6, label="Accuracy")
+        fig.legend(handles=[pre_patch, post_patch, min_handle, acc_handle],
+                   loc="lower right", fontsize=9, ncol=4,
+                   framealpha=0.9, edgecolor="lightgray")
+
         fig.suptitle(f"[{model_label}] RankMe vs {task.upper()} accuracy",
                      fontsize=13, fontweight="bold")
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0.04, 1, 1])
         suffix = f"_{model_key}" if model_key else ""
         path = Path(plots_dir) / f"overlay_{task}{suffix}.png"
-        plt.savefig(path)
+        plt.savefig(path, dpi=120, bbox_inches="tight")
         plt.show()
         print(f"Saved: {path}")
 

@@ -13,23 +13,39 @@ import numpy as np
 import pandas as pd
 
 
-def _find_first_descent_valley(rv: np.ndarray, tc: np.ndarray) -> tuple:
+def _find_valley(rv: np.ndarray, tc: np.ndarray, peak_idx: int) -> tuple:
     """
-    Find the bottom of the first monotonic descent using K=2 robustness.
+    Find the bottom of the initial compression valley.
 
-    Scans forward from index 0. The valley is the first index i where both
-    rv[i+1] > rv[i] and rv[i+2] > rv[i], meaning two consecutive subsequent
-    values both exceed rv[i]. This tolerates single noisy blips in the descent.
+    Two-phase strategy:
+    1. If the trajectory descends from the first checkpoint to a genuine minimum
+       before the global peak (any pre-peak value is strictly less than rv[0]),
+       use the pre-peak global minimum. This handles models like Apertus whose
+       first checkpoint is already past an unobserved entropy peak, producing a
+       visible U-shaped compression dip before a later global peak.
+    2. Otherwise (first checkpoint is at or below all pre-peak values — e.g. the
+       first checkpoint is itself a pre-entropy low), use the global minimum in
+       the post-peak region. This handles Fuxi (peak at first checkpoint) and
+       Vietnamese (low first checkpoint before a brief entropy rise).
 
     Returns (valley_idx, valley_tokens, valley_rankme).
-    Falls back to the last index if no such point is found (monotonic decline).
     """
-    n = len(rv)
-    for i in range(n - 2):
-        if rv[i + 1] > rv[i] and rv[i + 2] > rv[i]:
-            return i, float(tc[i]), float(rv[i])
-    # Monotonically declining — valley is the last point
-    return n - 1, float(tc[n - 1]), float(rv[n - 1])
+    # Case 1: genuine pre-peak descent
+    if peak_idx > 0:
+        pre_peak = rv[:peak_idx]
+        valid_pre = ~np.isnan(pre_peak)
+        if np.any(valid_pre) and float(np.nanmin(pre_peak)) < float(rv[0]):
+            rel_idx = int(np.nanargmin(pre_peak))
+            return rel_idx, float(tc[rel_idx]), float(rv[rel_idx])
+
+    # Case 2: first checkpoint is at or below all pre-peak values — search post-peak
+    post_rv = rv[peak_idx:]
+    valid_post = ~np.isnan(post_rv)
+    if not np.any(valid_post):
+        return peak_idx, float(tc[peak_idx]), float(rv[peak_idx])
+    rel_idx = int(np.nanargmin(post_rv))
+    abs_idx = peak_idx + rel_idx
+    return abs_idx, float(tc[abs_idx]), float(rv[abs_idx])
 
 
 def _identify_phases_single(rankme_values, token_counts: list) -> dict:
@@ -102,7 +118,7 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         rankme_first = float(rv[0])  if not np.isnan(rv[0])  else float("nan")
         rankme_last  = float(rv[-1]) if not np.isnan(rv[-1]) else float("nan")
 
-        valley_idx, valley_tokens, rankme_valley = _find_first_descent_valley(rv, tc)
+        valley_idx, valley_tokens, rankme_valley = _find_valley(rv, tc, phases["peak_idx"])
         duration_to_valley = valley_tokens - tc[0]
         if (not np.isnan(rankme_first) and not np.isnan(rankme_valley)
                 and duration_to_valley > 0):
