@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # Load environment variables from .env if it exists
-ENV_FILE="$(dirname "$0")/../.env"
+ENV_FILE="$(dirname "$0")/../../.env"
 if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
 fi

@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # Load environment variables from .env if it exists
-ENV_FILE="$(dirname "$0")/../.env"
+ENV_FILE="$(dirname "$0")/../../.env"
 if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
 fi
@@ -25,11 +25,11 @@ GASPAR="${GASPAR:-}"                       # Define it in .env
 GROUP="${GROUP:-g33}"                      # Define in .env or default here
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"       # Define it in .env
 REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
-CONFIG_PATH="multilingual_transfer/configs/xnli_apertus.yaml"
+CONFIG_PATH="code/geometry_analysis/configs/apertus-wiki.yaml"
 # ==============================================
 
 # Edit this for your project. Keep outputs/checkpoints under /scratch.
-TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && pip install -e ./vllm_fuxitranyu && python multilingual_transfer/xnli_generate.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
+TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && python code/geometry_analysis/geometry_analysis.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
 
 if [[ -z "${GASPAR}" ]]; then
     echo "ERROR: GASPAR environment variable is not set. Please define it in the .env file." >&2

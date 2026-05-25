@@ -12,7 +12,7 @@ All checkpoints are evaluated on the identical context and test draws (pre-compu
 One predictions CSV and one generations JSONL are saved per checkpoint.
 Premise/hypothesis text and full prompts are not stored; use test_idx + tgt_lang/src_lang to reconstruct from XNLI.
 
-Usage: python xnli_generate.py --config multilingual_transfer/configs/xnli.yaml
+Usage: python code/multilingual_transfer/xnli_generate.py --config code/multilingual_transfer/configs/xnli.yaml
 """
 
 import gc
@@ -431,7 +431,7 @@ def run_checkpoint(
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser(description="XNLI cross-lingual ICL evaluation")
-    parser.add_argument("--config", default="multilingual_transfer/configs/xnli.yaml")
+    parser.add_argument("--config", default="code/multilingual_transfer/configs/xnli.yaml")
     args = parser.parse_args()
 
     with open(args.config) as f:

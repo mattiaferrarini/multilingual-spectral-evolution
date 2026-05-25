@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # Load environment variables from .env if it exists
-ENV_FILE="$(dirname "$0")/../.env"
+ENV_FILE="$(dirname "$0")/../../.env"
 if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
 fi
@@ -25,11 +25,11 @@ GASPAR="${GASPAR:-}"                       # Define it in .env
 GROUP="${GROUP:-g33}"                      # Define in .env or default here
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"       # Define it in .env
 REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
-CONFIG_PATH="geometry_analysis/configs/fuxi_wiki_all.yaml"
+CONFIG_PATH="code/multilingual_transfer/configs/eclektic.yaml"
 # ==============================================
 
 # Edit this for your project. Keep outputs/checkpoints under /scratch.
-TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && python geometry_analysis/geometry_analysis.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
+TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && pip install -e ./code/vllm_fuxitranyu && python code/multilingual_transfer/eclektic_generate.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
 
 if [[ -z "${GASPAR}" ]]; then
     echo "ERROR: GASPAR environment variable is not set. Please define it in the .env file." >&2
