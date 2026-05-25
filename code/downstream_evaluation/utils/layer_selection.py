@@ -46,8 +46,9 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
     """
     Two-panel figure: cross-language RankMe std vs. layer for each model.
 
-    Each model dict must have keys:
-        label, csv, color, current_layer, model_key
+    Required keys per model dict: label, csv, color
+    Optional key: current_layer — if present, draws a reference annotation for
+                  that layer (used by select_analysis_layer.ipynb for comparison).
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
@@ -58,11 +59,9 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
 
     for ax, cfg in zip(axes, models):
         lnums, stds, _ = compute_stratification(cfg["csv"])
-        peak_idx      = int(np.argmax(stds))
-        peak_layer    = lnums[peak_idx]
-        peak_std      = stds[peak_idx]
-        current_std   = stds[lnums.index(cfg["current_layer"])]
-        pct           = 100 * current_std / peak_std
+        peak_idx   = int(np.argmax(stds))
+        peak_layer = lnums[peak_idx]
+        peak_std   = stds[peak_idx]
 
         ax.plot(lnums, stds,
                 color=cfg["color"], lw=2.2, marker="o", ms=4, zorder=3)
@@ -79,24 +78,26 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
             arrowprops=dict(arrowstyle="->", color=cfg["color"], lw=1.2),
         )
 
-        # Previously used layer
-        ax.axvline(cfg["current_layer"], color="gray", lw=1.4, ls=":", zorder=2)
-        ax.annotate(
-            f"layer {cfg['current_layer']}  (previously used)\nstd = {current_std:.0f}",
-            xy=(cfg["current_layer"], current_std),
-            xytext=(cfg["current_layer"] - 9, current_std + peak_std * 0.15),
-            fontsize=8.5, color="gray",
-            arrowprops=dict(arrowstyle="->", color="gray", lw=1.0),
-        )
-
-        # Signal retention callout
-        ax.text(
-            0.97, 0.97,
-            f"Previously used layer retains\nonly {pct:.0f}% of peak signal",
-            transform=ax.transAxes, fontsize=8.5, color="dimgray",
-            va="top", ha="right",
-            bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="lightgray", alpha=0.9),
-        )
+        # Optional reference layer annotation
+        ref_layer = cfg.get("current_layer")
+        if ref_layer is not None and ref_layer in lnums:
+            current_std = stds[lnums.index(ref_layer)]
+            pct         = 100 * current_std / peak_std
+            ax.axvline(ref_layer, color="gray", lw=1.4, ls=":", zorder=2)
+            ax.annotate(
+                f"layer {ref_layer}  (previously used)\nstd = {current_std:.0f}",
+                xy=(ref_layer, current_std),
+                xytext=(ref_layer - 9, current_std + peak_std * 0.15),
+                fontsize=8.5, color="gray",
+                arrowprops=dict(arrowstyle="->", color="gray", lw=1.0),
+            )
+            ax.text(
+                0.97, 0.97,
+                f"Previously used layer retains\nonly {pct:.0f}% of peak signal",
+                transform=ax.transAxes, fontsize=8.5, color="dimgray",
+                va="top", ha="right",
+                bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="lightgray", alpha=0.9),
+            )
 
         ax.set_title(cfg["label"], fontsize=12, pad=8)
         ax.set_xlabel("Layer", fontsize=11)
