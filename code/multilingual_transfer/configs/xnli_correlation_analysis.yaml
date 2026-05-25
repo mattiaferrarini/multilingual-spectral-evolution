@@ -1,0 +1,9 @@
+geometry:
+  aggregation: last
+
+correlation:
+  n_perm: 1000
+  pairs_csv: "code/results/xnli_correlations/{model}/pairs.csv"
+  results_csv: "code/results/xnli_correlations/{model}/correlation_results.csv"
+  scatter_dir: "plots/xnli_correlations/{model}/scatter"
+  timeseries_dir: "plots/xnli_correlations/{model}/timeseries"

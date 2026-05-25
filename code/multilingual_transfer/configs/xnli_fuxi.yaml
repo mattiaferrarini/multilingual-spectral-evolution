@@ -7,7 +7,7 @@ model:
   # For Apertus, use: branch_filter_pattern: "^step\\d+-tokens\\d+[BT]$"
   trust_remote_code: true
 
-output_dir: results/xnli
+output_dir: code/results/xnli
 
 icl:
   k: [4, 8]        # number of in-context examples — int or list of ints (0 = zero-shot)
@@ -35,3 +35,10 @@ languages:
   tr: Turkish
   vi: Vietnamese
   zh: Chinese
+
+plotting:
+  output_dir: plots/xnli/accuracy_heatmaps/FuxiTranyu-8B
+
+geometry:
+  csv: code/results/fuxi_fine_wiki.csv
+  layer: layer_29
