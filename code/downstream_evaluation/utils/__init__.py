@@ -17,10 +17,11 @@ from .data import load_rankme_data, load_eval_data
 from .phases import compute_geometry
 from .alpha_phases import compute_alpha_phases
 from .grokking import compute_grokking
-from .correlations import compute_correlations_table, compute_alpha_correlations_table
+from .correlations import compute_correlations_table, compute_alpha_correlations_table, compute_checkpoint_correlations
 from .layer_selection import compute_stratification, plot_stratification, stratification_summary
 from .plots import (plot_rankme_phases, plot_overlay,
                     plot_alpha_phases, plot_alpha_overlay,
                     plot_predictor_scatter,
                     plot_alpha_correlation_scatter_combined, plot_alpha_rate_scatter_combined,
+                    plot_checkpoint_correlations,
                     PHASE_COLORS, PHASE_LABELS, ALPHA_PHASE_COLORS, ALPHA_PHASE_LABELS)

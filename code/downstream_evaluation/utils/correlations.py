@@ -107,3 +107,46 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
                                                "pearson_r": None, "pearson_p": None})
                 records.append(row)
     return pd.DataFrame(records)
+
+
+def compute_checkpoint_correlations(df_layer: pd.DataFrame, df_eval: pd.DataFrame,
+                                    checkpoints_all: list, token_counts: list,
+                                    task_languages: dict) -> pd.DataFrame:
+    """
+    For each (checkpoint, task) pair, compute the cross-language Spearman correlation
+    between RankMe and downstream accuracy at that checkpoint.
+
+    Returns a DataFrame with columns:
+      checkpoint, token_count, task, spearman_r, spearman_p, n_languages
+    """
+    layer_by_ckpt = {
+        ckpt: grp.set_index("dataset")["rankme"]
+        for ckpt, grp in df_layer.groupby("checkpoint")
+    }
+    eval_by_ckpt_task = {
+        (ckpt, task): grp.set_index("language")["accuracy"]
+        for (ckpt, task), grp in df_eval.groupby(["checkpoint", "task"])
+    }
+
+    records = []
+    for ckpt, tc in zip(checkpoints_all, token_counts):
+        rankme_map = layer_by_ckpt.get(ckpt, pd.Series(dtype=float))
+        for task, langs in task_languages.items():
+            acc_map = eval_by_ckpt_task.get((ckpt, task), pd.Series(dtype=float))
+            overlap = [l for l in langs
+                       if l in rankme_map.index and l in acc_map.index]
+            rv    = np.array([float(rankme_map[l]) for l in overlap])
+            av    = np.array([float(acc_map[l])    for l in overlap])
+            valid = ~(np.isnan(rv) | np.isnan(av))
+            n     = int(valid.sum())
+            if n < 3:
+                records.append({"checkpoint": ckpt, "token_count": tc, "task": task,
+                                 "spearman_r": np.nan, "spearman_p": np.nan,
+                                 "n_languages": n})
+                continue
+            sp_r, sp_p = stats.spearmanr(rv[valid], av[valid])
+            records.append({"checkpoint": ckpt, "token_count": tc, "task": task,
+                             "spearman_r": round(float(sp_r), 4),
+                             "spearman_p": round(float(sp_p), 4),
+                             "n_languages": n})
+    return pd.DataFrame(records)

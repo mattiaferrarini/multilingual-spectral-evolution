@@ -499,6 +499,74 @@ def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> Non
     print(f"Saved: {path}")
 
 
+def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
+                                 plots_dir, model_key: str = "") -> None:
+    """
+    Plot per-checkpoint cross-language Spearman(RankMe, accuracy) for both tasks.
+
+    At each training checkpoint the correlation is computed across all languages
+    that have both RankMe and accuracy data for that task. Filled markers indicate
+    p < 0.05; open markers indicate p ≥ 0.05.
+    """
+    tasks  = [("m_mmlu", "M-MMLU"), ("xcopa", "XCOPA")]
+    colors = {"m_mmlu": "steelblue", "xcopa": "darkorange"}
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+
+    for ax, (task, task_label) in zip(axes, tasks):
+        df_t  = df_ckpt_corr[df_ckpt_corr["task"] == task].copy()
+        color = colors[task]
+
+        if df_t.empty or df_t["spearman_r"].isna().all():
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=12, color="gray")
+            ax.set_title(task_label)
+            continue
+
+        tc  = df_t["token_count"].values
+        rho = df_t["spearman_r"].values
+        p   = df_t["spearman_p"].values
+
+        valid = ~np.isnan(rho)
+        ax.plot(tc[valid], rho[valid], color=color, lw=1.5, alpha=0.5)
+
+        sig   = valid & (p < 0.05)
+        insig = valid & ~sig
+        if insig.any():
+            ax.scatter(tc[insig], rho[insig], s=45, facecolors="none",
+                       edgecolors=color, lw=1.5, zorder=4)
+        if sig.any():
+            ax.scatter(tc[sig], rho[sig], s=60, color=color,
+                       edgecolors="k", lw=0.5, zorder=5)
+
+        n_modal = int(df_t.loc[df_t["n_languages"] > 0, "n_languages"].mode().iloc[0])
+        ax.axhline(0, color="black", lw=1, ls="--", alpha=0.5)
+        ax.set_ylim(-1.05, 1.05)
+        ax.set_yticks([-1, -0.5, 0, 0.5, 1])
+        ax.set_title(f"{task_label}  (n = {n_modal} languages)",
+                     fontsize=11, fontweight="bold")
+        apply_token_formatter(ax)
+        ax.set_xlabel("Training tokens", fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+        filled_h = mpatches.Patch(color=color, label="p < 0.05")
+        open_h   = plt.Line2D([0], [0], marker="o", color="w",
+                               markerfacecolor="none", markeredgecolor=color,
+                               markersize=7, label="p ≥ 0.05")
+        ax.legend(handles=[filled_h, open_h], fontsize=8)
+
+    axes[0].set_ylabel("Spearman ρ  (RankMe vs accuracy, across languages)", fontsize=9)
+    fig.suptitle(
+        f"[{model_label}] Cross-language Spearman(RankMe, accuracy) per checkpoint",
+        fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    suffix = f"_{model_key}" if model_key else ""
+    path   = Path(plots_dir) / f"checkpoint_correlations{suffix}.png"
+    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {path}")
+
+
 def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
     """Scatter: rate of α decline vs grokking onset — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
