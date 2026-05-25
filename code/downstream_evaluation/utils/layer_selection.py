@@ -47,8 +47,6 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
     Two-panel figure: cross-language RankMe std vs. layer for each model.
 
     Required keys per model dict: label, csv, color
-    Optional key: current_layer — if present, draws a reference annotation for
-                  that layer (used by select_analysis_layer.ipynb for comparison).
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
@@ -67,7 +65,6 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
                 color=cfg["color"], lw=2.2, marker="o", ms=4, zorder=3)
         ax.fill_between(lnums, stds, alpha=0.12, color=cfg["color"])
 
-        # Peak layer
         ax.axvline(peak_layer, color=cfg["color"], lw=1.8, ls="--", zorder=2)
         x_offset = 1.5 if peak_layer < max(lnums) * 0.7 else -9
         ax.annotate(
@@ -77,27 +74,6 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
             fontsize=9, color=cfg["color"], fontweight="bold",
             arrowprops=dict(arrowstyle="->", color=cfg["color"], lw=1.2),
         )
-
-        # Optional reference layer annotation
-        ref_layer = cfg.get("current_layer")
-        if ref_layer is not None and ref_layer in lnums:
-            current_std = stds[lnums.index(ref_layer)]
-            pct         = 100 * current_std / peak_std
-            ax.axvline(ref_layer, color="gray", lw=1.4, ls=":", zorder=2)
-            ax.annotate(
-                f"layer {ref_layer}  (previously used)\nstd = {current_std:.0f}",
-                xy=(ref_layer, current_std),
-                xytext=(ref_layer - 9, current_std + peak_std * 0.15),
-                fontsize=8.5, color="gray",
-                arrowprops=dict(arrowstyle="->", color="gray", lw=1.0),
-            )
-            ax.text(
-                0.97, 0.97,
-                f"Previously used layer retains\nonly {pct:.0f}% of peak signal",
-                transform=ax.transAxes, fontsize=8.5, color="dimgray",
-                va="top", ha="right",
-                bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="lightgray", alpha=0.9),
-            )
 
         ax.set_title(cfg["label"], fontsize=12, pad=8)
         ax.set_xlabel("Layer", fontsize=11)
@@ -113,23 +89,19 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
 
 def stratification_summary(models: list[dict]) -> pd.DataFrame:
     """
-    Return a tidy DataFrame with peak and current-layer stats for each model.
+    Return a tidy DataFrame with peak-layer stats for each model.
     """
     rows = []
     for cfg in models:
         lnums, stds, _ = compute_stratification(cfg["csv"])
-        peak_idx     = int(np.argmax(stds))
-        peak_layer   = lnums[peak_idx]
-        peak_std     = stds[peak_idx]
-        current_std  = stds[lnums.index(cfg["current_layer"])]
-        top5         = sorted(range(len(stds)), key=lambda i: stds[i], reverse=True)[:5]
+        peak_idx   = int(np.argmax(stds))
+        peak_layer = lnums[peak_idx]
+        peak_std   = stds[peak_idx]
+        top5       = sorted(range(len(stds)), key=lambda i: stds[i], reverse=True)[:5]
         rows.append({
-            "model":              cfg["label"],
-            "selected layer":     f"layer_{peak_layer}",
-            "selected std":       round(peak_std, 1),
-            "previously used":    f"layer_{cfg['current_layer']}",
-            "previous std":       round(current_std, 1),
-            "signal retained (%)": round(100 * current_std / peak_std, 1),
-            "top 5 layers":       [f"layer_{lnums[i]}" for i in top5],
+            "model":          cfg["label"],
+            "selected layer": f"layer_{peak_layer}",
+            "selected std":   round(peak_std, 1),
+            "top 5 layers":   [f"layer_{lnums[i]}" for i in top5],
         })
     return pd.DataFrame(rows)
