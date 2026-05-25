@@ -430,6 +430,104 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
     print(f"Saved: {path}")
 
 
+def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
+    """
+    Two-panel heatmap: rows = 9 RankMe predictors, columns = 4 outcomes (task × measure).
+    Color encodes Spearman ρ; * marks p < 0.05; gray = undefined (zero variance).
+
+    Required key per model dict: label, df_correlations, color.
+    """
+    _SHORT = {
+        "RankMe at first ckpt":              "RankMe first ckpt",
+        "Valley of first descent (B)":       "Valley (B)",
+        "Initial RankMe drop rate (1/B)":    "Initial drop rate (1/B)",
+        "RankMe at last ckpt":               "RankMe last ckpt",
+        "Mean RankMe — first 25% of tokens": "Mean 0–25%",
+        "Mean RankMe — first 50% of tokens": "Mean 0–50%",
+        "Mean RankMe — last 25% of tokens":  "Mean 75–100%",
+        "Mean RankMe — before valley":       "Mean before valley",
+        "Mean RankMe — after valley":        "Mean after valley",
+    }
+    _PRED_ORDER = list(_SHORT.keys())
+    _COLS = [
+        ("m_mmlu", "Grokking onset (B)", "M-MMLU\nGrokking onset"),
+        ("m_mmlu", "Peak accuracy",      "M-MMLU\nPeak accuracy"),
+        ("xcopa",  "Grokking onset (B)", "XCOPA\nGrokking onset"),
+        ("xcopa",  "Peak accuracy",      "XCOPA\nPeak accuracy"),
+    ]
+
+    n    = len(models_data)
+    fig, axes = plt.subplots(1, n, figsize=(6 * n, 8))
+    if n == 1:
+        axes = [axes]
+
+    cmap = plt.cm.RdBu_r.copy()
+    cmap.set_bad("lightgray")
+    im = None
+
+    for ax, md in zip(axes, models_data):
+        df = md.get("df_correlations", pd.DataFrame())
+
+        mat_r = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+        mat_p = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+
+        if not df.empty:
+            for ci, (task, outcome, _) in enumerate(_COLS):
+                for ri, pred in enumerate(_PRED_ORDER):
+                    row = df[(df["task"] == task) &
+                             (df["predictor (x)"] == pred) &
+                             (df["outcome (y)"] == outcome)]
+                    if not row.empty:
+                        mat_r[ri, ci] = float(row["spearman_r"].iloc[0])
+                        mat_p[ri, ci] = float(row["spearman_p"].iloc[0])
+
+        masked = np.ma.masked_invalid(mat_r)
+        im = ax.imshow(masked, cmap=cmap, vmin=-1, vmax=1, aspect="auto")
+
+        ax.set_xticks(np.arange(-0.5, len(_COLS), 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(_PRED_ORDER), 1), minor=True)
+        ax.grid(which="minor", color="white", linewidth=1.5)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        ax.set_xticks(range(len(_COLS)))
+        ax.set_xticklabels([c[2] for c in _COLS], fontsize=9, rotation=30)
+        ax.set_yticks(range(len(_PRED_ORDER)))
+        ax.set_yticklabels([_SHORT[p] for p in _PRED_ORDER], fontsize=9)
+
+        for ri in range(len(_PRED_ORDER)):
+            for ci in range(len(_COLS)):
+                r = mat_r[ri, ci]
+                p = mat_p[ri, ci]
+                if np.isnan(r):
+                    ax.text(ci, ri, "—", ha="center", va="center",
+                            fontsize=9, color="gray")
+                    continue
+                star   = "*" if (not np.isnan(p) and p < 0.05) else ""
+                txt    = f"{r:.2f}{star}"
+                color  = "white" if abs(r) > 0.55 else "black"
+                weight = "bold" if star else "normal"
+                ax.text(ci, ri, txt, ha="center", va="center",
+                        fontsize=9, color=color, fontweight=weight)
+
+        ax.set_title(md["label"], fontsize=11, pad=10)
+
+    fig.suptitle(
+        "Spearman ρ: RankMe geometry → downstream performance\n"
+        "* = p < 0.05  |  gray = undefined (zero variance)",
+        fontsize=12, fontweight="bold",
+    )
+    # tight_layout first, leaving a strip on the right for the colorbar
+    plt.tight_layout(rect=[0, 0, 0.91, 0.93])
+    if im is not None:
+        cbar_ax = fig.add_axes([0.93, 0.18, 0.015, 0.62])
+        cb = fig.colorbar(im, cax=cbar_ax)
+        cb.set_label("Spearman ρ", fontsize=10)
+    path = Path(plots_dir) / "correlation_heatmap.png"
+    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {path}")
+
+
 def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> None:
     """Scatter: AlphaReQ trough position vs peak accuracy — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
