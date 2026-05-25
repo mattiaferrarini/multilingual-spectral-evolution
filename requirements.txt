@@ -11,3 +11,5 @@ vllm
 openai
 tqdm
 scipy
+scipy
+lm-eval
