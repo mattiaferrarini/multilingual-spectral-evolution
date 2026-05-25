@@ -10,7 +10,7 @@ model:
 output_dir: code/results/xnli
 
 icl:
-  k: [4, 8]        # number of in-context examples — int or list of ints (0 = zero-shot)
+  k: [4, 8, 16]        # number of in-context examples — int or list of ints (0 = zero-shot)
   n_eval: 1000                # number of evaluation examples (in target language)
   context_split: validation  # split used for ICL shots (human-translated, avoids test contamination)
   eval_split: test           # split used for evaluation
