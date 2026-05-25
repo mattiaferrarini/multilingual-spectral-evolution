@@ -65,6 +65,13 @@ def _phase_duration(phases: dict, phase_name: str) -> float:
     return float(p[1] - p[0]) if p is not None else float("nan")
 
 
+def _nanmean_slice(rv: np.ndarray, mask: np.ndarray) -> float:
+    """Mean of rv[mask], ignoring NaN. Returns NaN if no valid values."""
+    vals = rv[mask]
+    valid = vals[~np.isnan(vals)]
+    return float(np.mean(valid)) if len(valid) > 0 else float("nan")
+
+
 def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
                      token_counts: list) -> pd.DataFrame:
     """
@@ -76,11 +83,14 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
       rankme_valley            — RankMe at the bottom of the first descent
       valley_tokens            — token count (B) at the valley of the first descent
       rankme_initial_drop_rate — (rankme_first - rankme_valley) / (valley_tokens - first_tokens)
-                                 Rate of decline during the initial compression phase,
-                                 common to all languages and models. Uses K=2 valley
-                                 detection to tolerate single noisy blips in the descent.
+      rankme_early_mean        — mean RankMe over checkpoints in the first 25% of token range
+      rankme_medium_mean       — mean RankMe over checkpoints in the first 50% of token range
+      rankme_late_mean         — mean RankMe over checkpoints in the last 25% of token range
+      rankme_before_valley     — mean RankMe from the first checkpoint up to and including the valley
+      rankme_after_valley      — mean RankMe from the checkpoint after the valley to the last
     """
     tc = np.array(token_counts, dtype=float)
+    t_max = tc[-1]
 
     records = []
     for lang in sorted(df_layer["dataset"].unique()):
@@ -100,6 +110,12 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         else:
             rankme_initial_drop_rate = float("nan")
 
+        rankme_early_mean    = _nanmean_slice(rv, tc <= 0.25 * t_max)
+        rankme_medium_mean   = _nanmean_slice(rv, tc <= 0.50 * t_max)
+        rankme_late_mean     = _nanmean_slice(rv, tc >= 0.75 * t_max)
+        rankme_before_valley = _nanmean_slice(rv, np.arange(len(tc)) <= valley_idx)
+        rankme_after_valley  = _nanmean_slice(rv, np.arange(len(tc)) >  valley_idx)
+
         records.append({
             "language":                 lang,
             "peak_tokens":              phases["peak_tokens"],
@@ -108,5 +124,10 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
             "rankme_valley":            rankme_valley,
             "valley_tokens":            valley_tokens,
             "rankme_initial_drop_rate": rankme_initial_drop_rate,
+            "rankme_early_mean":        rankme_early_mean,
+            "rankme_medium_mean":       rankme_medium_mean,
+            "rankme_late_mean":         rankme_late_mean,
+            "rankme_before_valley":     rankme_before_valley,
+            "rankme_after_valley":      rankme_after_valley,
         })
     return pd.DataFrame(records)

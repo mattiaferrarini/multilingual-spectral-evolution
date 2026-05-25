@@ -35,7 +35,7 @@ def load_rankme_data(rankme_csv: Path, layer: str, aggregation: str) -> tuple:
                               (df_rankme["aggregation"] == aggregation)].copy()
     langs_sorted = sorted(df_layer["dataset"].unique())
 
-    print(f"Loaded RankMe: {len(df_rankme):,} rows — "
+    print(f"Loaded geometry data: {len(df_rankme):,} rows — "
           f"{len(checkpoints_all)} checkpoints, {len(langs_sorted)} languages")
     print(f"Working slice : {layer}, agg={aggregation} → {len(df_layer)} rows")
     return df_rankme, df_layer, checkpoints_all, token_counts, langs_sorted

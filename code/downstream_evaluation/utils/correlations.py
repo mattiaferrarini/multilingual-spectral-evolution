@@ -79,7 +79,9 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
     Returns df_correlations.
     """
     phase_cols = ["language", "valley_tokens",
-                  "rankme_first", "rankme_last", "rankme_initial_drop_rate"]
+                  "rankme_first", "rankme_last", "rankme_initial_drop_rate",
+                  "rankme_early_mean", "rankme_medium_mean", "rankme_late_mean",
+                  "rankme_before_valley", "rankme_after_valley"]
     records = []
     for task in ["m_mmlu", "xcopa"]:
         df_t = df_grokking[df_grokking["task"] == task]
@@ -91,6 +93,11 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
             ("valley_tokens",            "Valley of first descent (B)"),
             ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
             ("rankme_last",              "RankMe at last ckpt"),
+            ("rankme_early_mean",        "Mean RankMe — first 25% of tokens"),
+            ("rankme_medium_mean",       "Mean RankMe — first 50% of tokens"),
+            ("rankme_late_mean",         "Mean RankMe — last 25% of tokens"),
+            ("rankme_before_valley",     "Mean RankMe — before valley"),
+            ("rankme_after_valley",      "Mean RankMe — after valley"),
         ]:
             for y_col, y_label in [("grokking_tokens", "Grokking onset (B)"),
                                     ("peak_accuracy",   "Peak accuracy")]:
