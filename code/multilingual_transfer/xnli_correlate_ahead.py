@@ -37,12 +37,15 @@ from checkpoints import _checkpoint_sort_key
 
 PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym"]
 NORMALIZATIONS = ["row_norm", "col_norm"]
+FAST_PERM_DIVISOR = 10
 
 
 def _parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="Path to per-model XNLI config YAML")
     parser.add_argument("--analysis-config", required=True, help="Path to shared correlation analysis config YAML")
+    parser.add_argument("--fast", action="store_true",
+                        help=f"Fast mode: divide n_perm by {FAST_PERM_DIVISOR}, skip Kendall tau")
     return parser.parse_args()
 
 
@@ -188,15 +191,32 @@ def _null_corr():
             "kendall_r": None, "kendall_p": None}
 
 
-def _get_pred_values(rm, src_idx, tgt_idx, pred_name):
-    rs, rt = rm[src_idx], rm[tgt_idx]
+def _get_pred_values(rs, rt, pred_name):
     if pred_name == "abs_diff":    return np.abs(rs - rt)
     if pred_name == "signed_diff": return rs - rt
     if pred_name == "min_rankme":  return np.minimum(rs, rt)
     if pred_name == "norm_asym":   return (rs - rt) / (rs + rt + 1e-12)
 
 
-def _permutation_p_for_checkpoint(ckpt_pairs, n_perm=1000, seed=42):
+def _batch_pearson(X, y):
+    """X: (n_perm, n), y: (n,) — returns (n_perm,) Pearson r values."""
+    Xc = X - X.mean(axis=1, keepdims=True)
+    yc = y - y.mean()
+    num = Xc @ yc
+    denom = np.linalg.norm(Xc, axis=1) * np.linalg.norm(yc)
+    return np.where(denom > 0, num / denom, 0.0)
+
+
+def _batch_spearman(X, y):
+    """X: (n_perm, n), y: (n,) — returns (n_perm,) Spearman r values."""
+    order = X.argsort(axis=1)
+    ranks_X = np.empty_like(order, dtype=float)
+    ranks_X[np.arange(len(X))[:, None], order] = np.arange(1, X.shape[1] + 1, dtype=float)
+    ranks_y = y.argsort().argsort().astype(float) + 1
+    return _batch_pearson(ranks_X, ranks_y)
+
+
+def _permutation_p_for_checkpoint(ckpt_pairs, n_perm=1000, seed=42, fast=False):
     """
     Permutation p-values for all (predictor, normalization) combinations at one checkpoint.
     Permutes RankMe values across languages — the true unit of randomisation.
@@ -221,7 +241,7 @@ def _permutation_p_for_checkpoint(ckpt_pairs, n_perm=1000, seed=42):
 
     obs = {}
     for pred in PREDICTORS:
-        x_obs = _get_pred_values(rankme, src_idx, tgt_idx, pred)
+        x_obs = _get_pred_values(rankme[src_idx], rankme[tgt_idx], pred)
         for norm in NORMALIZATIONS:
             mask, y = y_data[norm]
             x = x_obs[mask]
@@ -236,23 +256,28 @@ def _permutation_p_for_checkpoint(ckpt_pairs, n_perm=1000, seed=42):
 
     counts = {k: [0, 0, 0] for k, v in obs.items() if v is not None}
 
-    for _ in range(n_perm):
-        rm_p = rng.permutation(rankme)
-        for pred in PREDICTORS:
-            x_p = _get_pred_values(rm_p, src_idx, tgt_idx, pred)
-            for norm in NORMALIZATIONS:
-                if obs.get((pred, norm)) is None:
-                    continue
-                mask, y = y_data[norm]
-                x = x_p[mask]
-                r_sp = stats.spearmanr(x, y)[0]
-                r_pe = stats.pearsonr(x, y)[0]
-                r_ke = stats.kendalltau(x, y)[0]
-                r_obs = obs[(pred, norm)]
-                c = counts[(pred, norm)]
-                c[0] += int(abs(r_sp) >= abs(r_obs[0]))
-                c[1] += int(abs(r_pe) >= abs(r_obs[1]))
-                c[2] += int(abs(r_ke) >= abs(r_obs[2]))
+    rm_perms = np.stack([rng.permutation(rankme) for _ in range(n_perm)])
+
+    for pred in PREDICTORS:
+        rs_all = rm_perms[:, src_idx]
+        rt_all = rm_perms[:, tgt_idx]
+        X_all = _get_pred_values(rs_all, rt_all, pred)
+
+        for norm in NORMALIZATIONS:
+            if obs.get((pred, norm)) is None:
+                continue
+            mask, y = y_data[norm]
+            X_valid = X_all[:, mask]
+            r_obs = obs[(pred, norm)]
+            c = counts[(pred, norm)]
+
+            c[0] = int((np.abs(_batch_spearman(X_valid, y)) >= abs(r_obs[0])).sum())
+            c[1] = int((np.abs(_batch_pearson(X_valid, y)) >= abs(r_obs[1])).sum())
+
+            if not fast:
+                for i in range(n_perm):
+                    r_ke = stats.kendalltau(X_valid[i], y)[0]
+                    c[2] += int(abs(r_ke) >= abs(r_obs[2]))
 
     result = {}
     for (pred, norm), v in obs.items():
@@ -263,12 +288,12 @@ def _permutation_p_for_checkpoint(ckpt_pairs, n_perm=1000, seed=42):
             result[(pred, norm)] = {
                 "spearman_p": round((c[0] + 1) / (n_perm + 1), 4),
                 "pearson_p":  round((c[1] + 1) / (n_perm + 1), 4),
-                "kendall_p":  round((c[2] + 1) / (n_perm + 1), 4),
+                "kendall_p":  None if fast else round((c[2] + 1) / (n_perm + 1), 4),
             }
     return result
 
 
-def _compute_correlations(pairs_df, n_perm=1000):
+def _compute_correlations(pairs_df, n_perm=1000, fast=False):
     """Return tidy DataFrame: one row per (predictor, normalization, k, scope, checkpoint)."""
     records = []
     k_values = sorted(pairs_df["k"].unique())
@@ -282,13 +307,15 @@ def _compute_correlations(pairs_df, n_perm=1000):
                 corr = _correlate(subset[pred], subset[norm])
                 records.append({**base, "scope": "pooled", "checkpoint": None, **(corr or _null_corr())})
 
-    print(f"Running permutation tests ({n_perm} permutations × {len(checkpoints)} checkpoints × {len(k_values)} k values)...")
+    eff_n_perm = n_perm // FAST_PERM_DIVISOR if fast else n_perm
+    print(f"Running permutation tests ({eff_n_perm} permutations × {len(checkpoints)} checkpoints × {len(k_values)} k values)"
+          + (" [fast mode]" if fast else "") + "...")
     perm_pvals = {}
     for k in k_values:
         k_subset = pairs_df[pairs_df["k"] == k]
         for ckpt in checkpoints:
             ckpt_pairs = k_subset[k_subset["checkpoint"] == ckpt]
-            perm_pvals[(ckpt, k)] = _permutation_p_for_checkpoint(ckpt_pairs, n_perm=n_perm)
+            perm_pvals[(ckpt, k)] = _permutation_p_for_checkpoint(ckpt_pairs, n_perm=eff_n_perm, fast=fast)
             print(f"  done: k={k}  {ckpt}")
 
     for pred in PREDICTORS:
@@ -371,7 +398,7 @@ def main():
             pairs_df["t"] = t
             print(f"  Built pairs DataFrame: {len(pairs_df)} rows")
 
-            corr_df = _compute_correlations(pairs_df, n_perm=n_perm)
+            corr_df = _compute_correlations(pairs_df, n_perm=n_perm, fast=args.fast)
             corr_df["layer"] = layer
             corr_df["t"] = t
 
