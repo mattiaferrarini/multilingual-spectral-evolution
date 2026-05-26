@@ -41,4 +41,3 @@ plotting:
 
 geometry:
   csv: code/results/fuxi_fine_wiki.csv
-  layer: layer_29

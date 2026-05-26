@@ -1,9 +1,13 @@
 geometry:
   aggregation: last
+  layers:
+    start: 0.0   # relative: 0.0 = first layer, 1.0 = last layer
+    end: 1.0
+    step: 1      # absolute integer stride (1 = every layer, 2 = every other, …)
 
 correlation:
   n_perm: 1000
   pairs_csv: "code/results/xnli_correlations/{model}/pairs.csv"
   results_csv: "code/results/xnli_correlations/{model}/correlation_results.csv"
-  scatter_dir: "plots/xnli_correlations/{model}/scatter"
   timeseries_dir: "plots/xnli_correlations/{model}/timeseries"
+  heatmaps_dir: "plots/xnli_correlations/{model}/heatmaps"

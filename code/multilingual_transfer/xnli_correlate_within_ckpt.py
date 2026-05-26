@@ -75,6 +75,22 @@ def _load_geometry(csv_path, lang_map, layer, aggregation):
     return result
 
 
+def _discover_layers(csv_path, aggregation):
+    """Return layer names present in the geometry CSV, sorted numerically."""
+    df = pd.read_csv(csv_path, usecols=["layer", "aggregation"])
+    df = df[df["aggregation"] == aggregation]
+    layers = sorted(df["layer"].unique(), key=lambda x: int(x.split("_")[1]))
+    return layers
+
+
+def _select_layers(all_layers, start, end, step):
+    """Select a subset of layers using relative start/end (0–1) and absolute integer step."""
+    n = len(all_layers)
+    start_idx = round(start * (n - 1))
+    end_idx = round(end * (n - 1))
+    return all_layers[start_idx : end_idx + 1 : step]
+
+
 def _find_xnli_files(output_dir, short_model):
     """Return {checkpoint_label: filepath} for all summary CSVs of this model."""
     pattern = os.path.join(output_dir, f"{short_model}_*_summary.csv")
@@ -302,38 +318,57 @@ def main():
 
     geo_cfg = cfg["geometry"]
     aggregation = analysis_cfg["geometry"]["aggregation"]
-    geom = _load_geometry(geo_cfg["csv"], lang_map, geo_cfg["layer"], aggregation)
+
+    layers_cfg = analysis_cfg["geometry"].get("layers", {"start": 1.0, "end": 1.0, "step": 1})
+    all_layers = _discover_layers(geo_cfg["csv"], aggregation)
+    selected_layers = _select_layers(all_layers, layers_cfg["start"], layers_cfg["end"], layers_cfg["step"])
+    print(f"Selected {len(selected_layers)} layer(s): {selected_layers}")
 
     xnli_files = _find_xnli_files(cfg["output_dir"], short_model)
-
-    geom_ckpts = {ckpt for (ckpt, _) in geom}
-    xnli_ckpts = set(xnli_files)
-    common = geom_ckpts & xnli_ckpts
-
-    only_geom = geom_ckpts - xnli_ckpts
-    only_xnli = xnli_ckpts - geom_ckpts
-    if only_geom:
-        print(f"Warning: {len(only_geom)} geometry checkpoint(s) with no XNLI data — skipped")
-    if only_xnli:
-        print(f"Warning: {len(only_xnli)} XNLI checkpoint(s) with no geometry data — skipped")
-
-    common_sorted = sorted(common, key=_checkpoint_sort_key)
-    print(f"Processing {len(common_sorted)} checkpoints with both geometry and XNLI data")
 
     k_values = cfg["icl"]["k"]
     if isinstance(k_values, int):
         k_values = [k_values]
 
-    pairs_df = _build_pairs_df(xnli_files, geom, k_values, common_sorted, lang_codes)
-    print(f"Built pairs DataFrame: {len(pairs_df)} rows")
+    n_perm = paths.get("n_perm", 1000)
+    all_pairs, all_corr = [], []
+
+    for layer in selected_layers:
+        print(f"\n--- Layer: {layer} ---")
+        geom = _load_geometry(geo_cfg["csv"], lang_map, layer, aggregation)
+
+        geom_ckpts = {ckpt for (ckpt, _) in geom}
+        xnli_ckpts = set(xnli_files)
+        common = geom_ckpts & xnli_ckpts
+
+        only_geom = geom_ckpts - xnli_ckpts
+        only_xnli = xnli_ckpts - geom_ckpts
+        if only_geom:
+            print(f"Warning: {len(only_geom)} geometry checkpoint(s) with no XNLI data — skipped")
+        if only_xnli:
+            print(f"Warning: {len(only_xnli)} XNLI checkpoint(s) with no geometry data — skipped")
+
+        common_sorted = sorted(common, key=_checkpoint_sort_key)
+        print(f"Processing {len(common_sorted)} checkpoints with both geometry and XNLI data")
+
+        pairs_df = _build_pairs_df(xnli_files, geom, k_values, common_sorted, lang_codes)
+        pairs_df["layer"] = layer
+        print(f"Built pairs DataFrame: {len(pairs_df)} rows")
+
+        corr_df = _compute_correlations(pairs_df, n_perm=n_perm)
+        corr_df["layer"] = layer
+
+        all_pairs.append(pairs_df)
+        all_corr.append(corr_df)
+
+    pairs_df = pd.concat(all_pairs, ignore_index=True)
+    corr_df = pd.concat(all_corr, ignore_index=True)
 
     pairs_csv = paths["pairs_csv"]
     os.makedirs(os.path.dirname(pairs_csv), exist_ok=True)
     pairs_df.to_csv(pairs_csv, index=False)
-    print(f"Saved pairs to {pairs_csv}")
+    print(f"\nSaved pairs to {pairs_csv}")
 
-    n_perm = paths.get("n_perm", 1000)
-    corr_df = _compute_correlations(pairs_df, n_perm=n_perm)
     results_csv = paths["results_csv"]
     os.makedirs(os.path.dirname(results_csv), exist_ok=True)
     corr_df.to_csv(results_csv, index=False)
