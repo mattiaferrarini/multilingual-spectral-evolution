@@ -1,0 +1,15 @@
+geometry:
+  aggregation: last
+  layers:
+    start: 0.0   # relative: 0.0 = first layer, 1.0 = last layer
+    end: 1.0
+    step: 1      # absolute integer stride (1 = every layer, 2 = every other, …)
+
+correlation:
+  t_values: [1, 2, 5]   # timesteps ahead: geometry at C predicts performance at C+T
+  n_perm: 1000
+  pairs_csv: "code/results/xnli_correlations_ahead/{model}/pairs.csv"
+  results_csv: "code/results/xnli_correlations_ahead/{model}/correlation_results.csv"
+  lag_dir:      "plots/xnli_correlations_ahead/{model}/lag_summary"
+  timeseries_dir: "plots/xnli_correlations_ahead/{model}/timeseries"
+  heatmaps_dir: "plots/xnli_correlations_ahead/{model}/heatmaps"
