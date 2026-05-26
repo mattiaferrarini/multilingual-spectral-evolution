@@ -56,12 +56,20 @@ def _sorted_layers(layer_series):
     return sorted(layer_series.unique(), key=lambda x: int(x.split("_")[1]))
 
 
-def _plot_timeseries(corr_df, timeseries_dir, k_values):
+def _plot_timeseries(corr_df, timeseries_dir, k_values,
+                     predictors=None, normalizations=None, corr_types=None):
     """
     One PNG per (layer, normalization).
-    Layout: 3 rows (Pearson/Spearman/Kendall) × len(k_values) columns.
+    Layout: len(corr_types) rows × len(k_values) columns.
     Filled markers = p < 0.05, hollow = p >= 0.05.
     """
+    if predictors is None:
+        predictors = PREDICTORS
+    if normalizations is None:
+        normalizations = NORMALIZATIONS
+    if corr_types is None:
+        corr_types = CORR_TYPES
+
     os.makedirs(timeseries_dir, exist_ok=True)
 
     per_ckpt = corr_df[corr_df["scope"] == "per_ckpt"].copy()
@@ -70,14 +78,15 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values):
 
     layers = _sorted_layers(per_ckpt["layer"])
     k_sorted = sorted(k_values)
+    n_rows = len(corr_types)
 
     for layer in layers:
         layer_data = per_ckpt[per_ckpt["layer"] == layer]
 
-        for norm in NORMALIZATIONS:
+        for norm in normalizations:
             fig, axes = plt.subplots(
-                3, len(k_sorted),
-                figsize=(4 * len(k_sorted), 9),
+                n_rows, len(k_sorted),
+                figsize=(max(8, 5 * len(k_sorted)), 4 * n_rows),
                 sharex=True,
                 squeeze=False,
             )
@@ -91,10 +100,10 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values):
                     (layer_data["normalization"] == norm) & (layer_data["k"] == k)
                 ]
 
-                for row_idx, (r_col, p_col, label) in enumerate(CORR_TYPES):
+                for row_idx, (r_col, p_col, label) in enumerate(corr_types):
                     ax = axes[row_idx, col_idx]
 
-                    for pred in PREDICTORS:
+                    for pred in predictors:
                         s = (
                             subset[subset["predictor"] == pred]
                             .sort_values("tokens_B")
@@ -112,7 +121,9 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values):
                             color=color, s=30, facecolors="none", zorder=3,
                         )
 
+                    ymin, ymax = ax.get_ylim()
                     ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+                    ax.set_ylim(ymin, ymax)
                     if row_idx == 0:
                         ax.set_title(f"k={k}", fontsize=10)
                     if col_idx == 0:
@@ -134,25 +145,32 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values):
             plt.close(fig)
 
 
-def _plot_heatmaps(corr_df, heatmaps_dir, k_values):
+def _plot_heatmaps(corr_df, heatmaps_dir, k_values,
+                   predictors=None, normalizations=None, corr_types=None):
     """
     One PNG per normalization.
     Each PNG: len(k_values) heatmaps side by side.
-    Rows = layers (ascending), cols = predictor × correlation metric (12 cols).
+    Rows = layers (ascending), cols = predictor × correlation metric.
     Significant cells (p < 0.05) are colored blue→red and show the value.
     Non-significant cells are gray with no label.
     """
+    if predictors is None:
+        predictors = PREDICTORS
+    if normalizations is None:
+        normalizations = NORMALIZATIONS
+    if corr_types is None:
+        corr_types = CORR_TYPES
+
     os.makedirs(heatmaps_dir, exist_ok=True)
 
     pooled = corr_df[corr_df["scope"] == "pooled"].copy()
     layers = _sorted_layers(pooled["layer"])
     k_sorted = sorted(k_values)
 
-    # Column definitions: (predictor, r_col, p_col, short_label)
     col_defs = [
         (pred, r_col, p_col, f"{pred}\n{name}")
-        for pred in PREDICTORS
-        for r_col, p_col, name in CORR_TYPES
+        for pred in predictors
+        for r_col, p_col, name in corr_types
     ]
     col_labels = [d[3] for d in col_defs]
     n_cols = len(col_defs)
@@ -162,12 +180,12 @@ def _plot_heatmaps(corr_df, heatmaps_dir, k_values):
     cmap = plt.cm.RdBu_r.copy()
     cmap.set_bad("lightgray")
 
-    for norm in NORMALIZATIONS:
+    for norm in normalizations:
         norm_data = pooled[pooled["normalization"] == norm]
 
         fig, axes = plt.subplots(
             1, len(k_sorted),
-            figsize=(3.5 * len(k_sorted), 0.35 * n_rows + 2.5),
+            figsize=(3.5 * len(k_sorted) + 1.5, 0.35 * n_rows + 2.5),
             squeeze=False,
         )
 
@@ -232,10 +250,18 @@ def main():
 
     k_values = sorted(pairs_df["k"].unique().tolist())
 
-    _plot_timeseries(corr_df, paths["timeseries_dir"], k_values)
+    active_predictors = [p for p in PREDICTORS if p in corr_df["predictor"].unique()]
+    active_normalizations = [n for n in NORMALIZATIONS if n in corr_df["normalization"].unique()]
+    active_corr_types = [(r, p, lbl) for r, p, lbl in CORR_TYPES if r in corr_df.columns]
+
+    _plot_timeseries(corr_df, paths["timeseries_dir"], k_values,
+                     predictors=active_predictors, normalizations=active_normalizations,
+                     corr_types=active_corr_types)
     print(f"Saved timeseries plots to {paths['timeseries_dir']}")
 
-    _plot_heatmaps(corr_df, paths["heatmaps_dir"], k_values)
+    _plot_heatmaps(corr_df, paths["heatmaps_dir"], k_values,
+                   predictors=active_predictors, normalizations=active_normalizations,
+                   corr_types=active_corr_types)
     print(f"Saved heatmaps to {paths['heatmaps_dir']}")
 
 

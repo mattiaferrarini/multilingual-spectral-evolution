@@ -65,71 +65,96 @@ def _sorted_layers(layer_series):
     return sorted(layer_series.unique(), key=lambda x: int(x.split("_")[1]))
 
 
-def _plot_lag_summary(corr_df, lag_dir, k_values, t_values):
+def _plot_lag_summary(corr_df, lag_dir, k_values, t_values,
+                      predictors=None, normalizations=None, corr_types=None):
     """
-    Primary plot: how does correlation change as prediction horizon T grows?
+    One PNG per (normalization, k).
+    Layout: len(corr_types) rows × 1 column.
+    x = layer, y = pooled correlation. Lines = predictor × T. Filled = p < 0.05.
+    """
+    if predictors is None:
+        predictors = PREDICTORS
+    if normalizations is None:
+        normalizations = NORMALIZATIONS
+    if corr_types is None:
+        corr_types = CORR_TYPES
 
-    One PNG per (layer, normalization).
-    Layout: rows = 3 corr types, cols = k values.
-    x = T, y = correlation. Lines = predictors. Filled = p < 0.05, hollow = p >= 0.05.
-    """
+    pred_colors = plt.cm.tab10.colors[:len(predictors)]
+
     os.makedirs(lag_dir, exist_ok=True)
     pooled = corr_df[corr_df["scope"] == "pooled"].copy()
     layers = _sorted_layers(pooled["layer"])
+    layer_idx = {l: i for i, l in enumerate(layers)}
+    n_layers = len(layers)
     k_sorted = sorted(k_values)
+    t_sorted = sorted(t_values)
+    t_ls = {t: T_LINESTYLES[i % len(T_LINESTYLES)] for i, t in enumerate(t_sorted)}
+    n_rows = len(corr_types)
+    x_ticks = list(range(n_layers))
+    x_labels = [l.split("_")[1] for l in layers]
 
-    for layer in layers:
-        layer_data = pooled[pooled["layer"] == layer]
+    for norm in normalizations:
+        norm_data = pooled[pooled["normalization"] == norm]
 
-        for norm in NORMALIZATIONS:
+        for k in k_sorted:
+            k_data = norm_data[norm_data["k"] == k]
+
             fig, axes = plt.subplots(
-                3, len(k_sorted),
-                figsize=(4 * len(k_sorted), 9),
-                sharey="row",
+                n_rows, 1,
+                figsize=(max(10, 0.4 * n_layers), 4 * n_rows),
+                sharex=True,
                 squeeze=False,
             )
             fig.suptitle(
-                f"RankMe predictability vs lag T  |  {norm}  |  {layer}",
+                f"RankMe predictability across layers  |  {norm}  |  k={k}",
                 fontsize=12,
             )
 
-            for col_idx, k in enumerate(k_sorted):
-                subset = layer_data[
-                    (layer_data["normalization"] == norm) & (layer_data["k"] == k)
-                ]
+            for row_idx, (r_col, p_col, label) in enumerate(corr_types):
+                ax = axes[row_idx, 0]
 
-                for row_idx, (r_col, p_col, label) in enumerate(CORR_TYPES):
-                    ax = axes[row_idx, col_idx]
-
-                    for pred_idx, pred in enumerate(PREDICTORS):
+                for pred_idx, pred in enumerate(predictors):
+                    color = pred_colors[pred_idx]
+                    for t in t_sorted:
                         s = (
-                            subset[subset["predictor"] == pred]
-                            .sort_values("t")
+                            k_data[(k_data["predictor"] == pred) & (k_data["t"] == t)]
+                            .copy()
                             .dropna(subset=[r_col])
                         )
                         if s.empty:
                             continue
-                        color = PRED_COLORS[pred_idx]
-                        ax.plot(s["t"], s[r_col], color=color, linewidth=1.5, label=pred)
+                        s["x"] = s["layer"].map(layer_idx)
+                        s = s.sort_values("x")
+                        ax.plot(s["x"], s[r_col], color=color, linestyle=t_ls[t], linewidth=1.4)
                         sig = s[s[p_col] < 0.05]
                         nonsig = s[s[p_col] >= 0.05]
-                        ax.scatter(sig["t"], sig[r_col], color=color, s=40, zorder=3)
+                        ax.scatter(sig["x"], sig[r_col], color=color, s=30, zorder=3)
                         ax.scatter(
-                            nonsig["t"], nonsig[r_col],
-                            color=color, s=40, facecolors="none", zorder=3,
+                            nonsig["x"], nonsig[r_col],
+                            color=color, s=30, facecolors="none", zorder=3,
                         )
 
-                    ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-                    ax.set_xticks(t_values)
-                    if row_idx == 0:
-                        ax.set_title(f"k={k}", fontsize=10)
-                    if col_idx == 0:
-                        ax.set_ylabel(label, fontsize=10)
-                    if row_idx == 0 and col_idx == len(k_sorted) - 1:
-                        ax.legend(fontsize=8)
+                ymin, ymax = ax.get_ylim()
+                ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+                ax.set_ylim(ymin, ymax)
+                ax.set_ylabel(label, fontsize=10)
+                ax.set_xticks(x_ticks)
 
-            for col_idx in range(len(k_sorted)):
-                axes[-1, col_idx].set_xlabel("T (steps ahead)", fontsize=10)
+            axes[-1, 0].set_xticklabels(x_labels, fontsize=7)
+            axes[-1, 0].set_xlabel("Layer", fontsize=10)
+
+            pred_handles = [
+                mpatches.Patch(color=pred_colors[i], label=p)
+                for i, p in enumerate(predictors)
+            ]
+            t_handles = [
+                mlines.Line2D([], [], color="black", linestyle=t_ls[t],
+                              linewidth=1.2, label=f"T={t}")
+                for t in t_sorted
+            ]
+            axes[0, 0].legend(
+                handles=pred_handles + t_handles, fontsize=8, loc="upper right",
+            )
 
             fig.text(
                 0.5, 0.01,
@@ -137,19 +162,29 @@ def _plot_lag_summary(corr_df, lag_dir, k_values, t_values):
                 ha="center", fontsize=8, color="gray",
             )
             fig.tight_layout(rect=[0, 0.03, 1, 0.97])
-            path = os.path.join(lag_dir, f"{layer}_{norm}.png")
+            path = os.path.join(lag_dir, f"{norm}_k{k}.png")
             fig.savefig(path, dpi=150)
             plt.close(fig)
 
 
-def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values):
+def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values,
+                     predictors=None, normalizations=None, corr_types=None):
     """
     Timeseries of per-checkpoint correlations over training.
 
     One PNG per (layer, normalization).
-    Layout: rows = 3 corr types, cols = k values.
+    Layout: rows = len(corr_types), cols = k values.
     Color = predictor. Line style = T value. Filled/hollow markers for significance.
     """
+    if predictors is None:
+        predictors = PREDICTORS
+    if normalizations is None:
+        normalizations = NORMALIZATIONS
+    if corr_types is None:
+        corr_types = CORR_TYPES
+
+    pred_colors = plt.cm.tab10.colors[:len(predictors)]
+
     os.makedirs(timeseries_dir, exist_ok=True)
 
     per_ckpt = corr_df[corr_df["scope"] == "per_ckpt"].copy()
@@ -160,14 +195,15 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values):
     k_sorted = sorted(k_values)
     t_sorted = sorted(t_values)
     t_ls = {t: T_LINESTYLES[i % len(T_LINESTYLES)] for i, t in enumerate(t_sorted)}
+    n_rows = len(corr_types)
 
     for layer in layers:
         layer_data = per_ckpt[per_ckpt["layer"] == layer]
 
-        for norm in NORMALIZATIONS:
+        for norm in normalizations:
             fig, axes = plt.subplots(
-                3, len(k_sorted),
-                figsize=(4 * len(k_sorted), 9),
+                n_rows, len(k_sorted),
+                figsize=(max(8, 5 * len(k_sorted)), 4 * n_rows),
                 sharex=True,
                 squeeze=False,
             )
@@ -181,11 +217,11 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values):
                     (layer_data["normalization"] == norm) & (layer_data["k"] == k)
                 ]
 
-                for row_idx, (r_col, p_col, label) in enumerate(CORR_TYPES):
+                for row_idx, (r_col, p_col, label) in enumerate(corr_types):
                     ax = axes[row_idx, col_idx]
 
-                    for pred_idx, pred in enumerate(PREDICTORS):
-                        color = PRED_COLORS[pred_idx]
+                    for pred_idx, pred in enumerate(predictors):
+                        color = pred_colors[pred_idx]
                         for t in t_sorted:
                             s = (
                                 subset[
@@ -206,7 +242,9 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values):
                                 color=color, s=20, marker="o", facecolors="none", zorder=3,
                             )
 
+                    ymin, ymax = ax.get_ylim()
                     ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+                    ax.set_ylim(ymin, ymax)
                     if row_idx == 0:
                         ax.set_title(f"k={k}", fontsize=10)
                     if col_idx == 0:
@@ -215,8 +253,8 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values):
             # Two-part legend on top-right subplot
             legend_ax = axes[0, -1]
             pred_handles = [
-                mpatches.Patch(color=PRED_COLORS[i], label=pred)
-                for i, pred in enumerate(PREDICTORS)
+                mpatches.Patch(color=pred_colors[i], label=pred)
+                for i, pred in enumerate(predictors)
             ]
             t_handles = [
                 mlines.Line2D([], [], color="black", linestyle=t_ls[t], linewidth=1.2, label=f"T={t}")
@@ -241,13 +279,21 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values):
             plt.close(fig)
 
 
-def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values):
+def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values,
+                       predictors=None, normalizations=None, corr_types=None):
     """
-    Compact heatmap: rows = T values, cols = predictor × corr metric (12 cols).
+    Compact heatmap: rows = T values, cols = predictor × corr metric.
 
     One PNG per (layer, normalization). k values as side-by-side heatmaps.
     Significant cells (p < 0.05) colored blue→red; non-significant gray.
     """
+    if predictors is None:
+        predictors = PREDICTORS
+    if normalizations is None:
+        normalizations = NORMALIZATIONS
+    if corr_types is None:
+        corr_types = CORR_TYPES
+
     os.makedirs(heatmaps_dir, exist_ok=True)
 
     pooled = corr_df[corr_df["scope"] == "pooled"].copy()
@@ -257,8 +303,8 @@ def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values):
 
     col_defs = [
         (pred, r_col, p_col, f"{pred}\n{name}")
-        for pred in PREDICTORS
-        for r_col, p_col, name in CORR_TYPES
+        for pred in predictors
+        for r_col, p_col, name in corr_types
     ]
     col_labels = [d[3] for d in col_defs]
     n_cols = len(col_defs)
@@ -270,12 +316,12 @@ def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values):
     for layer in layers:
         layer_data = pooled[pooled["layer"] == layer]
 
-        for norm in NORMALIZATIONS:
+        for norm in normalizations:
             norm_data = layer_data[layer_data["normalization"] == norm]
 
             fig, axes = plt.subplots(
                 1, len(k_sorted),
-                figsize=(3.5 * len(k_sorted), 0.6 * n_rows + 2.5),
+                figsize=(3.5 * len(k_sorted) + 1.5, 0.6 * n_rows + 2.5),
                 squeeze=False,
             )
 
@@ -340,13 +386,23 @@ def main():
     t_values = sorted(corr_df["t"].unique().tolist())
     k_values = sorted(corr_df["k"].unique().tolist())
 
-    _plot_lag_summary(corr_df, paths["lag_dir"], k_values, t_values)
+    active_predictors = [p for p in PREDICTORS if p in corr_df["predictor"].unique()]
+    active_normalizations = [n for n in NORMALIZATIONS if n in corr_df["normalization"].unique()]
+    active_corr_types = [(r, p, lbl) for r, p, lbl in CORR_TYPES if r in corr_df.columns]
+
+    _plot_lag_summary(corr_df, paths["lag_dir"], k_values, t_values,
+                      predictors=active_predictors, normalizations=active_normalizations,
+                      corr_types=active_corr_types)
     print(f"Saved lag summary plots to {paths['lag_dir']}")
 
-    _plot_timeseries(corr_df, paths["timeseries_dir"], k_values, t_values)
+    _plot_timeseries(corr_df, paths["timeseries_dir"], k_values, t_values,
+                     predictors=active_predictors, normalizations=active_normalizations,
+                     corr_types=active_corr_types)
     print(f"Saved timeseries plots to {paths['timeseries_dir']}")
 
-    _plot_heatmap_by_t(corr_df, paths["heatmaps_dir"], k_values, t_values)
+    _plot_heatmap_by_t(corr_df, paths["heatmaps_dir"], k_values, t_values,
+                       predictors=active_predictors, normalizations=active_normalizations,
+                       corr_types=active_corr_types)
     print(f"Saved heatmaps to {paths['heatmaps_dir']}")
 
 

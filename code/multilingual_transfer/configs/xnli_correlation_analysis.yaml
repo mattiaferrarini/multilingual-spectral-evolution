@@ -11,3 +11,10 @@ correlation:
   results_csv: "code/results/xnli_correlations/{model}/correlation_results.csv"
   timeseries_dir: "plots/xnli_correlations/{model}/timeseries"
   heatmaps_dir: "plots/xnli_correlations/{model}/heatmaps"
+
+# Optional filters — omit a key (or comment it out) to keep all values.
+filter:
+  # predictors: [signed_diff, norm_asym]
+  # k_values: [4, ]
+  # normalizations: [row_norm]
+  correlations: [spearman, pearson]
