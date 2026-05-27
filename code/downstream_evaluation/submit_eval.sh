@@ -109,11 +109,11 @@ fi
 EVAL_COMMAND="\
 cd /scratch/${REPO_NAME} && \
 pip install -r requirements.txt -q && \
-python downstream_evaluation/evaluate.py \
+python code/downstream_evaluation/evaluate.py \
   --model ${MODEL_NAME} \
   --checkpoint ${CHECKPOINT} \
   --output-dir /scratch/${REPO_NAME}/results/eval \
-  --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml \
+  --config /scratch/${REPO_NAME}/code/downstream_evaluation/configs/benchmarks.yaml \
   --batch-size 1 \
   ${LIMIT_ARG}"
 
