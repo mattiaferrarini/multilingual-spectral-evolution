@@ -6,8 +6,14 @@ computes four RankMe-based predictors from checkpoint C and correlates them agai
 row-normalized and col-normalized transfer scores from checkpoint C+T.
 P-values use a permutation test that respects language-level non-independence.
 
-Outputs: pairs CSV and correlation results CSV (both include a `t` column).
-For plots, adapt xnli_plot_within_ckpt.py to group by `t`.
+Outputs: pairs CSV and correlation results CSV (both include `t` and `ckpt_collapse` columns).
+For plots, adapt xnli_plot_within_ckpt.py to group by `t` and/or `ckpt_collapse`.
+
+Optional checkpoint collapse (set `ckpt_collapse` list in analysis config under `correlation:`):
+  null              : single checkpoint (default, current behaviour)
+  average_rankme    : average RankMe values per language over all geometry checkpoints ≤ C,
+                      then compute predictors from the averaged values.
+  average_predictors: compute predictors at each geometry checkpoint ≤ C, then average them.
 
 Predictors (from geometry checkpoint C):
   abs_diff    : |RankMe(src) - RankMe(tgt)|
@@ -158,6 +164,98 @@ def _build_pairs_df_ahead(xnli_files, geom, k_values, common_sorted, lang_codes,
                 "signed_diff": rs - rt,
                 "min_rankme": min(rs, rt),
                 "norm_asym": (rs - rt) / (rs + rt + 1e-12),
+                "row_norm": row_norm,
+                "col_norm": col_norm,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def _build_rolled_geom_avg_rankme(geom, all_geom_ckpts_sorted, common_sorted):
+    """
+    For each XNLI checkpoint in common_sorted, average RankMe per language over all geometry
+    checkpoints (from the full CSV) up to and including that checkpoint.
+    Returns {(xnli_ckpt, lang): avg_rankme} — same structure as the flat geom dict.
+    """
+    geom_by_ckpt = {}
+    for (ckpt, lang), val in geom.items():
+        geom_by_ckpt.setdefault(ckpt, {})[lang] = val
+
+    result = {}
+    for xnli_ckpt in common_sorted:
+        xnli_key = _checkpoint_sort_key(xnli_ckpt)
+        sums, counts = {}, {}
+        for g in all_geom_ckpts_sorted:
+            if _checkpoint_sort_key(g) > xnli_key:
+                break
+            for lang, val in geom_by_ckpt.get(g, {}).items():
+                sums[lang] = sums.get(lang, 0.0) + val
+                counts[lang] = counts.get(lang, 0) + 1
+        for lang in sums:
+            result[(xnli_ckpt, lang)] = sums[lang] / counts[lang]
+    return result
+
+
+def _build_pairs_df_avg_predictors(xnli_files, geom_by_ckpt, all_geom_ckpts_sorted,
+                                    k_values, common_sorted, lang_codes, t):
+    """
+    Like _build_pairs_df_ahead but computes each predictor at every geometry checkpoint up to
+    the reference XNLI checkpoint, then averages those predictor values.
+    rankme_src/tgt stored are the averages of raw RankMe (used by the permutation test).
+    """
+    rows = []
+    for i in range(len(common_sorted) - t):
+        xnli_ckpt = common_sorted[i]
+        perf_ckpt = common_sorted[i + t]
+        xnli_key = _checkpoint_sort_key(xnli_ckpt)
+
+        window = [g for g in all_geom_ckpts_sorted if _checkpoint_sort_key(g) <= xnli_key]
+        if not window:
+            continue
+
+        df = pd.read_csv(xnli_files[perf_ckpt])
+        df = df[df["k"].isin(k_values)]
+        df = df[df["src_lang"].isin(lang_codes) & df["tgt_lang"].isin(lang_codes)]
+
+        diag = (
+            df[df["src_lang"] == df["tgt_lang"]]
+            .set_index(["k", "src_lang"])["mean_accuracy"]
+        )
+
+        for _, row in df[df["src_lang"] != df["tgt_lang"]].iterrows():
+            k = row["k"]
+            src, tgt = row["src_lang"], row["tgt_lang"]
+            acc = row["mean_accuracy"]
+
+            rs_vals, rt_vals = [], []
+            for g in window:
+                rs = geom_by_ckpt.get(g, {}).get(src)
+                rt = geom_by_ckpt.get(g, {}).get(tgt)
+                if rs is not None and rt is not None:
+                    rs_vals.append(rs)
+                    rt_vals.append(rt)
+
+            if not rs_vals:
+                continue
+
+            acc_ss = diag.get((k, src))
+            acc_tt = diag.get((k, tgt))
+            row_norm = acc / acc_ss if (acc_ss is not None and acc_ss > 0) else np.nan
+            col_norm = acc / acc_tt if (acc_tt is not None and acc_tt > 0) else np.nan
+
+            rows.append({
+                "checkpoint": xnli_ckpt,
+                "perf_checkpoint": perf_ckpt,
+                "k": k,
+                "src_lang": src,
+                "tgt_lang": tgt,
+                "mean_accuracy": acc,
+                "rankme_src": float(np.mean(rs_vals)),
+                "rankme_tgt": float(np.mean(rt_vals)),
+                "abs_diff": float(np.mean([abs(rs - rt) for rs, rt in zip(rs_vals, rt_vals)])),
+                "signed_diff": float(np.mean([rs - rt for rs, rt in zip(rs_vals, rt_vals)])),
+                "min_rankme": float(np.mean([min(rs, rt) for rs, rt in zip(rs_vals, rt_vals)])),
+                "norm_asym": float(np.mean([(rs - rt) / (rs + rt + 1e-12) for rs, rt in zip(rs_vals, rt_vals)])),
                 "row_norm": row_norm,
                 "col_norm": col_norm,
             })
@@ -407,47 +505,75 @@ def main():
         k_values = [k for k in k_values if k in filter_cfg["k_values"]]
 
     n_perm = paths.get("n_perm", 1000)
+
+    ckpt_collapse_methods = paths.get("ckpt_collapse", [None])
+    if not ckpt_collapse_methods:
+        ckpt_collapse_methods = [None]
+    if not isinstance(ckpt_collapse_methods, list):
+        ckpt_collapse_methods = [ckpt_collapse_methods]
+
     all_pairs, all_corr = [], []
 
-    for layer in selected_layers:
-        print(f"\n--- Layer: {layer} ---")
-        geom = _load_geometry(geo_cfg["csv"], lang_map, layer, aggregation)
+    for ckpt_method in ckpt_collapse_methods:
+        method_label = ckpt_method if ckpt_method is not None else "none"
+        print(f"\n=== Checkpoint collapse: {method_label} ===")
 
-        geom_ckpts = {ckpt for (ckpt, _) in geom}
-        xnli_ckpts = set(xnli_files)
-        common = geom_ckpts & xnli_ckpts
+        for layer in selected_layers:
+            print(f"\n--- Layer: {layer} ---")
+            geom = _load_geometry(geo_cfg["csv"], lang_map, layer, aggregation)
 
-        only_geom = geom_ckpts - xnli_ckpts
-        only_xnli = xnli_ckpts - geom_ckpts
-        if only_geom:
-            print(f"Warning: {len(only_geom)} geometry checkpoint(s) with no XNLI data — skipped")
-        if only_xnli:
-            print(f"Warning: {len(only_xnli)} XNLI checkpoint(s) with no geometry data — skipped")
+            all_geom_ckpts = sorted({ckpt for (ckpt, _) in geom}, key=_checkpoint_sort_key)
+            xnli_ckpts = set(xnli_files)
+            common = set(all_geom_ckpts) & xnli_ckpts
 
-        common_sorted = sorted(common, key=_checkpoint_sort_key)
-        print(f"Found {len(common_sorted)} checkpoints with both geometry and XNLI data")
+            only_geom = set(all_geom_ckpts) - xnli_ckpts
+            only_xnli = xnli_ckpts - set(all_geom_ckpts)
+            if only_geom:
+                print(f"Warning: {len(only_geom)} geometry checkpoint(s) with no XNLI data — skipped")
+            if only_xnli:
+                print(f"Warning: {len(only_xnli)} XNLI checkpoint(s) with no geometry data — skipped")
 
-        for t in t_values:
-            n_geom_ckpts = len(common_sorted) - t
-            if n_geom_ckpts <= 0:
-                print(f"  t={t}: not enough checkpoints ({len(common_sorted)} available), skipping")
-                continue
-            print(f"\n  t={t}: using {n_geom_ckpts} geometry checkpoint(s)")
+            common_sorted = sorted(common, key=_checkpoint_sort_key)
+            print(f"Found {len(common_sorted)} checkpoints with both geometry and XNLI data")
 
-            pairs_df = _build_pairs_df_ahead(xnli_files, geom, k_values, common_sorted, lang_codes, t)
-            pairs_df["layer"] = layer
-            pairs_df["t"] = t
-            print(f"  Built pairs DataFrame: {len(pairs_df)} rows")
+            for t in t_values:
+                n_geom_ckpts = len(common_sorted) - t
+                if n_geom_ckpts <= 0:
+                    print(f"  t={t}: not enough checkpoints ({len(common_sorted)} available), skipping")
+                    continue
+                print(f"\n  t={t}: using {n_geom_ckpts} geometry checkpoint(s)")
 
-            corr_df = _compute_correlations(pairs_df, n_perm=n_perm, fast=args.fast,
-                                             predictors=active_predictors,
-                                             normalizations=active_normalizations,
-                                             correlations=active_correlations)
-            corr_df["layer"] = layer
-            corr_df["t"] = t
+                if ckpt_method is None:
+                    pairs_df = _build_pairs_df_ahead(xnli_files, geom, k_values, common_sorted, lang_codes, t)
+                elif ckpt_method == "average_rankme":
+                    rolled_geom = _build_rolled_geom_avg_rankme(geom, all_geom_ckpts, common_sorted)
+                    pairs_df = _build_pairs_df_ahead(xnli_files, rolled_geom, k_values, common_sorted, lang_codes, t)
+                elif ckpt_method == "average_predictors":
+                    geom_by_ckpt = {}
+                    for (ckpt, lang), val in geom.items():
+                        geom_by_ckpt.setdefault(ckpt, {})[lang] = val
+                    pairs_df = _build_pairs_df_avg_predictors(
+                        xnli_files, geom_by_ckpt, all_geom_ckpts, k_values, common_sorted, lang_codes, t
+                    )
+                else:
+                    raise ValueError(f"Unknown ckpt_collapse method: {ckpt_method!r}. "
+                                     f"Valid options: null, 'average_rankme', 'average_predictors'")
 
-            all_pairs.append(pairs_df)
-            all_corr.append(corr_df)
+                pairs_df["layer"] = layer
+                pairs_df["t"] = t
+                pairs_df["ckpt_collapse"] = method_label
+                print(f"  Built pairs DataFrame: {len(pairs_df)} rows")
+
+                corr_df = _compute_correlations(pairs_df, n_perm=n_perm, fast=args.fast,
+                                                 predictors=active_predictors,
+                                                 normalizations=active_normalizations,
+                                                 correlations=active_correlations)
+                corr_df["layer"] = layer
+                corr_df["t"] = t
+                corr_df["ckpt_collapse"] = method_label
+
+                all_pairs.append(pairs_df)
+                all_corr.append(corr_df)
 
     pairs_df = pd.concat(all_pairs, ignore_index=True)
     corr_df = pd.concat(all_corr, ignore_index=True)

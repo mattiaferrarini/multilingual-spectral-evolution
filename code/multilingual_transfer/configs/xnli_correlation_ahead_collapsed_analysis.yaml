@@ -7,8 +7,9 @@ geometry:
     step: 1      # absolute integer stride (1 = every layer, 2 = every other, …)
 
 correlation:
-  t_values: [1, 5, 10]   # timesteps ahead: geometry at C predicts performance at C+T
+  t_values: [0, 1, 3, 5, 10]   # timesteps ahead: geometry at C predicts performance at C+T
   n_perm: 1000
+  ckpt_collapse: [null, average_rankme, average_predictors]  # checkpoint aggregation methods
   pairs_csv:      "code/results/xnli_correlations_ahead_collapsed/{model}/pairs.csv"
   results_csv:    "code/results/xnli_correlations_ahead_collapsed/{model}/correlation_results.csv"
   lag_dir:        "plots/xnli_correlations_ahead_collapsed/{model}/lag_summary"

@@ -383,27 +383,44 @@ def main():
 
     corr_df = pd.read_csv(paths["results_csv"])
 
-    t_values = sorted(corr_df["t"].unique().tolist())
-    k_values = sorted(corr_df["k"].unique().tolist())
+    collapse_values = (
+        sorted(corr_df["ckpt_collapse"].unique().tolist())
+        if "ckpt_collapse" in corr_df.columns
+        else ["none"]
+    )
 
-    active_predictors = [p for p in PREDICTORS if p in corr_df["predictor"].unique()]
-    active_normalizations = [n for n in NORMALIZATIONS if n in corr_df["normalization"].unique()]
-    active_corr_types = [(r, p, lbl) for r, p, lbl in CORR_TYPES if r in corr_df.columns]
+    for method in collapse_values:
+        if "ckpt_collapse" in corr_df.columns:
+            method_df = corr_df[corr_df["ckpt_collapse"] == method].copy()
+        else:
+            method_df = corr_df
 
-    _plot_lag_summary(corr_df, paths["lag_dir"], k_values, t_values,
-                      predictors=active_predictors, normalizations=active_normalizations,
-                      corr_types=active_corr_types)
-    print(f"Saved lag summary plots to {paths['lag_dir']}")
+        t_values = sorted(method_df["t"].unique().tolist())
+        k_values = sorted(method_df["k"].unique().tolist())
 
-    _plot_timeseries(corr_df, paths["timeseries_dir"], k_values, t_values,
-                     predictors=active_predictors, normalizations=active_normalizations,
-                     corr_types=active_corr_types)
-    print(f"Saved timeseries plots to {paths['timeseries_dir']}")
+        active_predictors = [p for p in PREDICTORS if p in method_df["predictor"].unique()]
+        active_normalizations = [n for n in NORMALIZATIONS if n in method_df["normalization"].unique()]
+        active_corr_types = [(r, p, lbl) for r, p, lbl in CORR_TYPES if r in method_df.columns]
 
-    _plot_heatmap_by_t(corr_df, paths["heatmaps_dir"], k_values, t_values,
-                       predictors=active_predictors, normalizations=active_normalizations,
-                       corr_types=active_corr_types)
-    print(f"Saved heatmaps to {paths['heatmaps_dir']}")
+        lag_dir        = os.path.join(paths["lag_dir"],        method)
+        timeseries_dir = os.path.join(paths["timeseries_dir"], method)
+        heatmaps_dir   = os.path.join(paths["heatmaps_dir"],   method)
+
+        _plot_lag_summary(method_df, lag_dir, k_values, t_values,
+                          predictors=active_predictors, normalizations=active_normalizations,
+                          corr_types=active_corr_types)
+
+        _plot_timeseries(method_df, timeseries_dir, k_values, t_values,
+                         predictors=active_predictors, normalizations=active_normalizations,
+                         corr_types=active_corr_types)
+
+        _plot_heatmap_by_t(method_df, heatmaps_dir, k_values, t_values,
+                           predictors=active_predictors, normalizations=active_normalizations,
+                           corr_types=active_corr_types)
+
+        print(f"[{method}] lag_summary → {lag_dir}")
+        print(f"[{method}] timeseries  → {timeseries_dir}")
+        print(f"[{method}] heatmaps    → {heatmaps_dir}")
 
 
 if __name__ == "__main__":

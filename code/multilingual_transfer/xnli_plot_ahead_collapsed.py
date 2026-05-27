@@ -1,16 +1,16 @@
 """
 Plot RankMe → future transfer correlation results from xnli_correlate_ahead_collapsed.py.
 
-Reads correlation_results.csv (with `layer_collapse` and `t` columns, no `layer` column)
-and writes three plot types:
+Reads correlation_results.csv (with `layer_collapse`, `ckpt_collapse`, and `t` columns)
+and writes three plot types per ckpt_collapse method (subdirectory per method):
 
-  lag_summary/  — PRIMARY: one PNG per (normalization, k).
+  {ckpt_method}/lag_summary/  — PRIMARY: one PNG per (normalization, k).
                   x = T (lag), y = pooled correlation.
-                  Color = predictor, line style = collapse method.
-  timeseries/   — one PNG per (collapse_method, normalization). x = training tokens.
+                  Color = predictor, line style = layer_collapse method.
+  {ckpt_method}/timeseries/   — one PNG per (layer_collapse_method, normalization). x = training tokens.
                   Color = predictor, line style = T value.
-  bar_summary/  — one PNG per (normalization, k).
-                  Grouped bar chart: x = T, bars = predictor, groups = collapse method.
+  {ckpt_method}/bar_summary/  — one PNG per (normalization, k).
+                  Grouped bar chart: x = T, bars = predictor, groups = layer_collapse method.
                   Solid bar = p < 0.05, hatched = p ≥ 0.05.
 
 Usage:
@@ -396,28 +396,44 @@ def main():
 
     corr_df = pd.read_csv(paths["results_csv"])
 
-    t_values = sorted(corr_df["t"].unique().tolist())
-    k_values = sorted(corr_df["k"].unique().tolist())
-    collapse_methods = corr_df["layer_collapse"].unique().tolist()
+    ckpt_collapse_values = (
+        sorted(corr_df["ckpt_collapse"].unique().tolist())
+        if "ckpt_collapse" in corr_df.columns
+        else ["none"]
+    )
 
-    active_predictors = [p for p in PREDICTORS if p in corr_df["predictor"].unique()]
-    active_normalizations = [n for n in NORMALIZATIONS if n in corr_df["normalization"].unique()]
-    active_corr_types = [(r, p, lbl) for r, p, lbl in CORR_TYPES if r in corr_df.columns]
+    for ckpt_method in ckpt_collapse_values:
+        if "ckpt_collapse" in corr_df.columns:
+            method_df = corr_df[corr_df["ckpt_collapse"] == ckpt_method].copy()
+        else:
+            method_df = corr_df
 
-    _plot_lag_summary(corr_df, paths["lag_dir"], k_values, t_values, collapse_methods,
-                      predictors=active_predictors, normalizations=active_normalizations,
-                      corr_types=active_corr_types)
-    print(f"Saved lag summary plots to {paths['lag_dir']}")
+        t_values = sorted(method_df["t"].unique().tolist())
+        k_values = sorted(method_df["k"].unique().tolist())
+        collapse_methods = method_df["layer_collapse"].unique().tolist()
 
-    _plot_timeseries(corr_df, paths["timeseries_dir"], k_values, t_values, collapse_methods,
-                     predictors=active_predictors, normalizations=active_normalizations,
-                     corr_types=active_corr_types)
-    print(f"Saved timeseries plots to {paths['timeseries_dir']}")
+        active_predictors = [p for p in PREDICTORS if p in method_df["predictor"].unique()]
+        active_normalizations = [n for n in NORMALIZATIONS if n in method_df["normalization"].unique()]
+        active_corr_types = [(r, p, lbl) for r, p, lbl in CORR_TYPES if r in method_df.columns]
 
-    _plot_bar_summary(corr_df, paths["bar_dir"], k_values, t_values, collapse_methods,
-                      predictors=active_predictors, normalizations=active_normalizations,
-                      corr_types=active_corr_types)
-    print(f"Saved bar summary plots to {paths['bar_dir']}")
+        lag_dir        = os.path.join(paths["lag_dir"],        ckpt_method)
+        timeseries_dir = os.path.join(paths["timeseries_dir"], ckpt_method)
+        bar_dir        = os.path.join(paths["bar_dir"],        ckpt_method)
+
+        _plot_lag_summary(method_df, lag_dir, k_values, t_values, collapse_methods,
+                          predictors=active_predictors, normalizations=active_normalizations,
+                          corr_types=active_corr_types)
+        print(f"[{ckpt_method}] lag_summary → {lag_dir}")
+
+        _plot_timeseries(method_df, timeseries_dir, k_values, t_values, collapse_methods,
+                         predictors=active_predictors, normalizations=active_normalizations,
+                         corr_types=active_corr_types)
+        print(f"[{ckpt_method}] timeseries  → {timeseries_dir}")
+
+        _plot_bar_summary(method_df, bar_dir, k_values, t_values, collapse_methods,
+                          predictors=active_predictors, normalizations=active_normalizations,
+                          corr_types=active_corr_types)
+        print(f"[{ckpt_method}] bar_summary → {bar_dir}")
 
 
 if __name__ == "__main__":
