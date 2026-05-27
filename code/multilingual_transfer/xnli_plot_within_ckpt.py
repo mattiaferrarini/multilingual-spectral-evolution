@@ -185,8 +185,9 @@ def _plot_heatmaps(corr_df, heatmaps_dir, k_values,
 
         fig, axes = plt.subplots(
             1, len(k_sorted),
-            figsize=(3.5 * len(k_sorted) + 1.5, 0.35 * n_rows + 2.5),
+            figsize=(3.5 * len(k_sorted) + 1.5, 0.15 * n_rows + 2.5),
             squeeze=False,
+            constrained_layout=True,
         )
 
         ims = []
@@ -231,7 +232,6 @@ def _plot_heatmaps(corr_df, heatmaps_dir, k_values,
 
         fig.suptitle(f"Pooled correlations  |  {norm}", fontsize=12)
         fig.colorbar(ims[-1], ax=axes[0, :], shrink=0.6, label="correlation")
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
         path = os.path.join(heatmaps_dir, f"{norm}.png")
         fig.savefig(path, dpi=150, bbox_inches="tight")
         plt.close(fig)

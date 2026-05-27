@@ -282,9 +282,8 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values,
 def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values,
                        predictors=None, normalizations=None, corr_types=None):
     """
-    Compact heatmap: rows = T values, cols = predictor × corr metric.
-
-    One PNG per (layer, normalization). k values as side-by-side heatmaps.
+    One PNG per (T, normalization). k values as side-by-side heatmaps.
+    Rows = layers (ascending), cols = predictor × corr metric.
     Significant cells (p < 0.05) colored blue→red; non-significant gray.
     """
     if predictors is None:
@@ -308,35 +307,37 @@ def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values,
     ]
     col_labels = [d[3] for d in col_defs]
     n_cols = len(col_defs)
-    n_rows = len(t_sorted)
+    n_rows = len(layers)
+    layer_labels = [l.replace("layer_", "") for l in layers]
 
     cmap = plt.cm.RdBu_r.copy()
     cmap.set_bad("lightgray")
 
-    for layer in layers:
-        layer_data = pooled[pooled["layer"] == layer]
+    for norm in normalizations:
+        norm_data = pooled[pooled["normalization"] == norm]
 
-        for norm in normalizations:
-            norm_data = layer_data[layer_data["normalization"] == norm]
+        for t in t_sorted:
+            t_data = norm_data[norm_data["t"] == t]
 
             fig, axes = plt.subplots(
                 1, len(k_sorted),
-                figsize=(3.5 * len(k_sorted) + 1.5, 0.6 * n_rows + 2.5),
+                figsize=(3.5 * len(k_sorted) + 1.5, 0.15 * n_rows + 2.5),
                 squeeze=False,
+                constrained_layout=True,
             )
 
             ims = []
             for col_idx, k in enumerate(k_sorted):
                 ax = axes[0, col_idx]
-                k_data = norm_data[norm_data["k"] == k]
+                k_data = t_data[t_data["k"] == k]
 
                 r_mat = np.full((n_rows, n_cols), np.nan)
                 sig_mat = np.zeros((n_rows, n_cols), dtype=bool)
 
-                for row_i, t in enumerate(t_sorted):
-                    t_rows = k_data[k_data["t"] == t]
+                for row_i, layer in enumerate(layers):
+                    layer_rows = k_data[k_data["layer"] == layer]
                     for col_j, (pred, r_col, p_col, _) in enumerate(col_defs):
-                        match = t_rows[t_rows["predictor"] == pred]
+                        match = layer_rows[layer_rows["predictor"] == pred]
                         if match.empty:
                             continue
                         r_val = match[r_col].values[0]
@@ -362,13 +363,12 @@ def _plot_heatmap_by_t(corr_df, heatmaps_dir, k_values, t_values,
                 ax.set_xticks(range(n_cols))
                 ax.set_xticklabels(col_labels, rotation=90, fontsize=7)
                 ax.set_yticks(range(n_rows))
-                ax.set_yticklabels([f"T={t}" for t in t_sorted] if col_idx == 0 else [], fontsize=8)
+                ax.set_yticklabels(layer_labels if col_idx == 0 else [], fontsize=7)
                 ax.set_title(f"k={k}", fontsize=10)
 
-            fig.suptitle(f"Pooled correlations by lag T  |  {norm}  |  {layer}", fontsize=12)
+            fig.suptitle(f"Pooled correlations  |  {norm}  |  T={t}", fontsize=12)
             fig.colorbar(ims[-1], ax=axes[0, :], shrink=0.6, label="correlation")
-            fig.tight_layout(rect=[0, 0, 1, 0.95])
-            path = os.path.join(heatmaps_dir, f"{layer}_{norm}.png")
+            path = os.path.join(heatmaps_dir, f"T{t}_{norm}.png")
             fig.savefig(path, dpi=150, bbox_inches="tight")
             plt.close(fig)
 
