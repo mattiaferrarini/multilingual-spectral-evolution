@@ -132,7 +132,7 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
         if df_geometry is not None else {}
     )
 
-    for task in ["m_mmlu", "xcopa"]:
+    for task in task_languages:
         df_task = df_eval[df_eval["task"] == task]
         overlap = [l for l in task_languages[task]
                    if l in langs_sorted and l in df_task["language"].unique()]
@@ -357,13 +357,20 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
     Layout: 2 rows (M-MMLU / XCOPA) × 2 columns (Grokking onset / Peak accuracy).
     Call once per predictor for four focused, readable figures.
     """
-    tasks    = [("m_mmlu", "M-MMLU"), ("xcopa", "XCOPA")]
+    _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA",
+                    "belebele": "Belebele", "m_arc": "M-ARC"}
+    all_tasks = []
+    for md in models_data:
+        for t in (md["df_grokking"]["task"].unique() if not md["df_grokking"].empty else []):
+            if t not in [x[0] for x in all_tasks]:
+                all_tasks.append((t, _TASK_LABELS.get(t, t.upper())))
     outcomes = [("grokking_tokens", "Grokking onset (B)"), ("peak_accuracy", "Peak accuracy")]
     token_cols = {"valley_tokens", "grokking_tokens"}
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    n_tasks = len(all_tasks)
+    fig, axes = plt.subplots(n_tasks, 2, figsize=(14, 5 * n_tasks), squeeze=False)
 
-    for row_idx, (task, task_label) in enumerate(tasks):
+    for row_idx, (task, task_label) in enumerate(all_tasks):
         for col_idx, (y_col, y_label) in enumerate(outcomes):
             ax = axes[row_idx, col_idx]
             title_lines = []
@@ -450,14 +457,18 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     }
     _PRED_ORDER = list(_SHORT.keys())
     _COLS = [
-        ("m_mmlu", "Grokking onset (B)", "M-MMLU\nGrokking onset"),
-        ("m_mmlu", "Peak accuracy",      "M-MMLU\nPeak accuracy"),
-        ("xcopa",  "Grokking onset (B)", "XCOPA\nGrokking onset"),
-        ("xcopa",  "Peak accuracy",      "XCOPA\nPeak accuracy"),
+        ("m_mmlu",    "Grokking onset (B)", "M-MMLU\nGrokking onset"),
+        ("m_mmlu",    "Peak accuracy",      "M-MMLU\nPeak accuracy"),
+        ("xcopa",     "Grokking onset (B)", "XCOPA\nGrokking onset"),
+        ("xcopa",     "Peak accuracy",      "XCOPA\nPeak accuracy"),
+        ("belebele",  "Grokking onset (B)", "Belebele\nGrokking onset"),
+        ("belebele",  "Peak accuracy",      "Belebele\nPeak accuracy"),
+        ("m_arc",     "Grokking onset (B)", "M-ARC\nGrokking onset"),
+        ("m_arc",     "Peak accuracy",      "M-ARC\nPeak accuracy"),
     ]
 
     n    = len(models_data)
-    fig, axes = plt.subplots(1, n, figsize=(6 * n, 8))
+    fig, axes = plt.subplots(1, n, figsize=(max(6, len(_COLS) * 0.9) * n, 8))
     if n == 1:
         axes = [axes]
 
@@ -606,12 +617,23 @@ def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
     that have both RankMe and accuracy data for that task. Filled markers indicate
     p < 0.05; open markers indicate p ≥ 0.05.
     """
-    tasks  = [("m_mmlu", "M-MMLU"), ("xcopa", "XCOPA")]
-    colors = {"m_mmlu": "steelblue", "xcopa": "darkorange"}
+    _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA",
+                    "belebele": "Belebele", "m_arc": "M-ARC"}
+    _TASK_COLORS = ["steelblue", "darkorange", "seagreen", "darkorchid"]
+    tasks = [(t, _TASK_LABELS.get(t, t.upper()))
+             for t in df_ckpt_corr["task"].unique()]
+    colors = {t: _TASK_COLORS[i % len(_TASK_COLORS)] for i, (t, _) in enumerate(tasks)}
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+    n_tasks = len(tasks)
+    ncols = min(n_tasks, 2)
+    nrows = -(-n_tasks // ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5 * nrows), sharey=True,
+                             squeeze=False)
+    axes_flat = [axes[r][c] for r in range(nrows) for c in range(ncols)]
+    for ax in axes_flat[n_tasks:]:
+        ax.set_visible(False)
 
-    for ax, (task, task_label) in zip(axes, tasks):
+    for ax, (task, task_label) in zip(axes_flat, tasks):
         df_t  = df_ckpt_corr[df_ckpt_corr["task"] == task].copy()
         color = colors[task]
 
@@ -653,7 +675,7 @@ def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
                                markersize=7, label="p ≥ 0.05")
         ax.legend(handles=[filled_h, open_h], fontsize=8)
 
-    axes[0].set_ylabel("Spearman ρ  (RankMe vs accuracy, across languages)", fontsize=9)
+    axes_flat[0].set_ylabel("Spearman ρ  (RankMe vs accuracy, across languages)", fontsize=9)
     fig.suptitle(
         f"[{model_label}] Cross-language Spearman(RankMe, accuracy) per checkpoint",
         fontsize=12, fontweight="bold")

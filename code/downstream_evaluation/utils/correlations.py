@@ -83,7 +83,7 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
                   "rankme_early_mean", "rankme_medium_mean", "rankme_late_mean",
                   "rankme_before_valley", "rankme_after_valley"]
     records = []
-    for task in ["m_mmlu", "xcopa"]:
+    for task in df_grokking["task"].unique():
         df_t = df_grokking[df_grokking["task"] == task]
         if df_t.empty:
             continue
