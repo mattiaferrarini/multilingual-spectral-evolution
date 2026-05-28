@@ -29,6 +29,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -219,6 +220,23 @@ def score_llm(generations_path: str, output_dir: str, languages: dict, eval_mode
     judgments_path = os.path.join(output_dir, f"{model_name}_judgments.csv")
     judgments[["q_id", "lang", "generation_idx", "original_lang", "judge", "correct"]].to_csv(judgments_path, index=False)
     logger.info(f"Saved to {judgments_path}")
+
+    per_judge = (
+        judgments.groupby(['original_lang', 'lang', 'judge'])['correct']
+        .mean().unstack('judge').reset_index()
+    )
+    per_judge.columns.name = None
+    per_judge.columns = ['original_lang', 'lang'] + [f'accuracy_{j}' for j in per_judge.columns[2:]]
+    majority_per_pair = (
+        judgments.groupby(['q_id', 'lang', 'generation_idx', 'original_lang'])['correct']
+        .mean().ge(0.5).reset_index()
+        .groupby(['original_lang', 'lang'])['correct']
+        .mean().reset_index().rename(columns={'correct': 'accuracy_majority'})
+    )
+    per_pair = per_judge.merge(majority_per_pair, on=['original_lang', 'lang'])
+    per_pair_path = os.path.join(output_dir, f"{model_name}_judgments_per_pair.csv")
+    per_pair.to_csv(per_pair_path, index=False)
+    logger.info(f"Saved per-pair judgments to {per_pair_path}")
 
 
 def score_string(generations_path: str, output_dir: str):

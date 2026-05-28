@@ -7,10 +7,15 @@ data_path: multilingual_transfer/datasets/eclektic_main.jsonl
 # Number of unique questions to evaluate (each appears in N languages). Omit or set to null for all.
 max_questions: null
 
+eval_models:
+  - Qwen/Qwen3.5-27B
+  - zai-org/GLM-4.7-Flash
+
 output_dir: code/results/eclektic
 
 # Evaluation methods to run (any combination of: llm, string)
 eval_method:
+  - llm
   - string
 
 generation:
