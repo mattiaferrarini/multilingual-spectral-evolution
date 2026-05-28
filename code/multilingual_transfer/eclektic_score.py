@@ -18,6 +18,8 @@ import os
 import glob
 import logging
 import argparse
+import time
+import random
 from math import sqrt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -205,9 +207,10 @@ def eval_one(examples, eval_model, languages, max_workers=32,
             except Exception as e:
                 if attempt == 4:
                     raise
-                wait = 2 ** attempt
-                logger.warning(f"Request failed ({e}), retrying in {wait}s...")
-                import time; time.sleep(wait)
+                is_rate_limit = getattr(e, 'status_code', None) == 429
+                wait = 60 + random.uniform(0, 10) if is_rate_limit else 2 ** attempt
+                logger.warning(f"Request failed ({e}), retrying in {wait:.1f}s...")
+                time.sleep(wait)
 
     def _flush(buf):
         rows = [[r[0], r[1], r[2], orig_lang_map.get((r[0], r[1], r[2])), r[3], r[4]] for r in buf]
@@ -234,6 +237,34 @@ def eval_one(examples, eval_model, languages, max_workers=32,
         _flush(buffer)
 
     return pd.DataFrame(data=evals, columns=["q_id", "lang", "generation_idx", "judge", "correct"])
+
+
+def _llm_transfer_per_pair(judgments: pd.DataFrame) -> pd.DataFrame:
+    """Compute overall_score and transfer_score per (original_lang, lang) pair using majority vote.
+
+    Follows the official ECLeKTic formula: correct_in_lang_qids are q_ids answered correctly
+    in their original language; transfer_score = cross-lingual successes / all rows for those q_ids.
+    """
+    majority = (
+        judgments.groupby(['q_id', 'lang', 'original_lang'])['correct']
+        .mean().ge(0.5).reset_index()
+    )
+    rows = []
+    for orig, orig_group in majority.groupby('original_lang'):
+        in_lang = orig_group[orig_group['lang'] == orig]
+        correct_in_lang_qids = set(in_lang[in_lang['correct']]['q_id'])
+        if not correct_in_lang_qids:
+            continue
+        for tgt, pair in orig_group[orig_group['lang'] != orig].groupby('lang'):
+            n_successes = int((pair['correct'] & pair['q_id'].isin(correct_in_lang_qids)).sum())
+            overall_score = n_successes / len(pair)
+            transfer_denom = orig_group[
+                orig_group['lang'].isin([orig, tgt]) & orig_group['q_id'].isin(correct_in_lang_qids)
+            ]
+            transfer_score = n_successes / len(transfer_denom) if len(transfer_denom) > 0 else 0.0
+            rows.append({'original_lang': orig, 'lang': tgt,
+                         'overall_score': overall_score, 'transfer_score': transfer_score})
+    return pd.DataFrame(rows)
 
 
 def score_llm(generations_path: str, output_dir: str, languages: dict, eval_models: list,
@@ -286,7 +317,9 @@ def score_llm(generations_path: str, output_dir: str, languages: dict, eval_mode
         .groupby(['original_lang', 'lang'])['correct']
         .mean().reset_index().rename(columns={'correct': 'accuracy_majority'})
     )
+    transfer_per_pair = _llm_transfer_per_pair(judgments)
     per_pair = per_judge.merge(majority_per_pair, on=['original_lang', 'lang'])
+    per_pair = per_pair.merge(transfer_per_pair, on=['original_lang', 'lang'], how='left')
     per_pair_path = os.path.join(output_dir, f"{model_name}_judgments_per_pair.csv")
     per_pair.to_csv(per_pair_path, index=False)
     logger.info(f"Saved per-pair judgments to {per_pair_path}")

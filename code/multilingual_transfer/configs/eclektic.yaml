@@ -10,6 +10,8 @@ max_questions: null
 eval_models:
   - Qwen/Qwen3.5-27B
   - zai-org/GLM-4.7-Flash
+  - meta-llama/Llama-3.3-70B-Instruct
+  - gpt-5-mini
 
 output_dir: code/results/eclektic
 
