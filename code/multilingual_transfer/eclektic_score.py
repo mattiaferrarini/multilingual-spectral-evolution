@@ -110,6 +110,23 @@ def compute_string_metrics(df: pd.DataFrame) -> dict:
         "overall_margin": overall_margin,
     }
 
+
+def compute_string_metrics_per_pair(df: pd.DataFrame) -> pd.DataFrame:
+    """Return transfer_score, transfer_margin, overall_score, overall_margin per (original_language, target_language) pair."""
+    in_lang_rows = df[df['original_language'] == df['target_language']]
+    langs_with_in_lang = set(in_lang_rows['original_language'].unique())
+    rows = []
+    for (orig, tgt), group in df.groupby(['original_language', 'target_language']):
+        if orig == tgt or orig not in langs_with_in_lang:
+            continue
+        pair_q_ids = group['q_id'].unique()
+        relevant_in_lang = in_lang_rows[in_lang_rows['q_id'].isin(pair_q_ids)]
+        pair_df = pd.concat([relevant_in_lang, group], ignore_index=True)
+        metrics = compute_string_metrics(pair_df)
+        rows.append({'original_language': orig, 'target_language': tgt, **metrics})
+    return pd.DataFrame(rows)
+
+
 load_dotenv()
 
 openai_api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -221,6 +238,12 @@ def score_string(generations_path: str, output_dir: str):
     out_path = os.path.join(output_dir, f"{model_name}_string_scores.csv")
     pd.DataFrame([{"model": model_name, **metrics}]).to_csv(out_path, index=False)
     logger.info(f"Saved to {out_path}")
+
+    pair_metrics = compute_string_metrics_per_pair(df)
+    pair_metrics.insert(0, 'model', model_name)
+    pair_out_path = os.path.join(output_dir, f"{model_name}_string_scores_per_pair.csv")
+    pair_metrics.to_csv(pair_out_path, index=False)
+    logger.info(f"Saved per-pair scores to {pair_out_path}")
 
 
 def score_model(generations_path: str, output_dir: str, languages: dict, eval_models: list, eval_method: list):

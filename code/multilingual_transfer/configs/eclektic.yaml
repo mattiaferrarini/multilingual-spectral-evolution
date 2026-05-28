@@ -7,11 +7,11 @@ data_path: multilingual_transfer/datasets/eclektic_main.jsonl
 # Number of unique questions to evaluate (each appears in N languages). Omit or set to null for all.
 max_questions: null
 
-output_dir: results/eclektic
+output_dir: code/results/eclektic
 
 # Evaluation methods to run (any combination of: llm, string)
 eval_method:
-  - llm
+  - string
 
 generation:
   temperature: 0.7
