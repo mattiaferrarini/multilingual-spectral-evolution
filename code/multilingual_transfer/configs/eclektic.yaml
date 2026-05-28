@@ -13,6 +13,9 @@ eval_models:
 
 output_dir: code/results/eclektic
 
+judge_concurrency: 50
+judge_checkpoint_every: 100
+
 # Evaluation methods to run (any combination of: llm, string)
 eval_method:
   - llm

@@ -19,6 +19,7 @@ import glob
 import logging
 import argparse
 from math import sqrt
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 import numpy as np
@@ -193,32 +194,84 @@ Output:
     )
 
 
-def eval_one(examples, eval_model, languages):
+def eval_one(examples, eval_model, languages, max_workers=32,
+             checkpoint_path=None, checkpoint_every=100, orig_lang_map=None):
+    def _judge_row(row):
+        prompt = eval_prompt(row["question"], row["content"], row["response"], row["lang"], languages)
+        for attempt in range(5):
+            try:
+                response = generate_api(eval_model, prompt)
+                return [row["q_id"], row["lang"], row["generation_idx"], eval_model, "yes" in response.lower()]
+            except Exception as e:
+                if attempt == 4:
+                    raise
+                wait = 2 ** attempt
+                logger.warning(f"Request failed ({e}), retrying in {wait}s...")
+                import time; time.sleep(wait)
+
+    def _flush(buf):
+        rows = [[r[0], r[1], r[2], orig_lang_map.get((r[0], r[1], r[2])), r[3], r[4]] for r in buf]
+        df = pd.DataFrame(rows, columns=["q_id", "lang", "generation_idx", "original_lang", "judge", "correct"])
+        write_header = not os.path.exists(checkpoint_path)
+        df.to_csv(checkpoint_path, mode='a', header=write_header, index=False)
+
+    rows_list = [row for _, row in examples.iterrows()]
     evals = []
-    for _, row in tqdm(examples.iterrows(), total=len(examples), desc=f"judge={eval_model}"):
-        prompt = eval_prompt(
-            row["question"], row["content"], row["response"], row["lang"], languages
-        )
-        response = generate_api(eval_model, prompt)
-        is_correct = "yes" in response.lower()
-        evals.append([row["q_id"], row["lang"], row["generation_idx"], eval_model, is_correct])
+    buffer = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_judge_row, row): i for i, row in enumerate(rows_list)}
+        with tqdm(total=len(futures), desc=f"judge={eval_model}") as pbar:
+            for future in as_completed(futures):
+                result = future.result()
+                evals.append(result)
+                if checkpoint_path and orig_lang_map is not None:
+                    buffer.append(result)
+                    if len(buffer) >= checkpoint_every:
+                        _flush(buffer)
+                        buffer.clear()
+                pbar.update(1)
+    if checkpoint_path and orig_lang_map is not None and buffer:
+        _flush(buffer)
 
     return pd.DataFrame(data=evals, columns=["q_id", "lang", "generation_idx", "judge", "correct"])
 
 
-def score_llm(generations_path: str, output_dir: str, languages: dict, eval_models: list):
+def score_llm(generations_path: str, output_dir: str, languages: dict, eval_models: list,
+              judge_concurrency: int = 32, checkpoint_every: int = 100):
     model_name = os.path.basename(generations_path).replace("_generations.json", "")
     logger.info(f"LLM-judge scoring: {model_name}")
 
     eval_data = pd.read_json(generations_path, orient="records")
-    original_lang = eval_data[["q_id", "lang", "generation_idx", "original_lang"]].drop_duplicates()
-
-    all_evals = pd.concat([eval_one(eval_data, m, languages) for m in eval_models], ignore_index=True)
-    judgments = pd.merge(all_evals, original_lang, on=["q_id", "lang", "generation_idx"])
+    orig_lang_lookup = eval_data[["q_id", "lang", "generation_idx", "original_lang"]].drop_duplicates()
+    orig_lang_map = {(r.q_id, r.lang, r.generation_idx): r.original_lang for r in orig_lang_lookup.itertuples(index=False)}
 
     os.makedirs(output_dir, exist_ok=True)
     judgments_path = os.path.join(output_dir, f"{model_name}_judgments.csv")
-    judgments[["q_id", "lang", "generation_idx", "original_lang", "judge", "correct"]].to_csv(judgments_path, index=False)
+
+    existing = pd.read_csv(judgments_path) if os.path.exists(judgments_path) else pd.DataFrame(
+        columns=["q_id", "lang", "generation_idx", "original_lang", "judge", "correct"]
+    )
+    if not existing.empty:
+        logger.info(f"Loaded {len(existing)} existing judgments from {judgments_path}")
+
+    for m in eval_models:
+        if not existing.empty and m in existing["judge"].values:
+            done = existing[existing["judge"] == m][["q_id", "lang", "generation_idx"]]
+            to_judge = eval_data.merge(done, on=["q_id", "lang", "generation_idx"], how="left", indicator=True)
+            to_judge = to_judge[to_judge["_merge"] == "left_only"].drop("_merge", axis=1)
+            logger.info(f"{m}: skipping {len(done)} already-judged rows, {len(to_judge)} remaining")
+        else:
+            to_judge = eval_data
+
+        if to_judge.empty:
+            logger.info(f"{m}: all rows already judged, skipping.")
+            continue
+
+        eval_one(to_judge, m, languages, judge_concurrency,
+                 checkpoint_path=judgments_path, checkpoint_every=checkpoint_every,
+                 orig_lang_map=orig_lang_map)
+
+    judgments = pd.read_csv(judgments_path)
     logger.info(f"Saved to {judgments_path}")
 
     per_judge = (
@@ -264,9 +317,10 @@ def score_string(generations_path: str, output_dir: str):
     logger.info(f"Saved per-pair scores to {pair_out_path}")
 
 
-def score_model(generations_path: str, output_dir: str, languages: dict, eval_models: list, eval_method: list):
+def score_model(generations_path: str, output_dir: str, languages: dict, eval_models: list, eval_method: list,
+                judge_concurrency: int = 32, checkpoint_every: int = 100):
     if "llm" in eval_method:
-        score_llm(generations_path, output_dir, languages, eval_models)
+        score_llm(generations_path, output_dir, languages, eval_models, judge_concurrency, checkpoint_every)
     if "string" in eval_method:
         score_string(generations_path, output_dir)
 
@@ -288,6 +342,8 @@ def main():
     eval_models = config.get("eval_models", [])
     output_dir = config.get("output_dir", "results")
     eval_method = config.get("eval_method", "llm")
+    judge_concurrency = config.get("judge_concurrency", 32)
+    checkpoint_every = config.get("judge_checkpoint_every", 100)
     generations_dir = args.generations_dir or output_dir
 
     valid = {"llm", "string"}
@@ -303,7 +359,7 @@ def main():
     logger.info(f"Found {len(generation_files)} generation file(s): {generation_files}")
 
     for gen_file in generation_files:
-        score_model(gen_file, output_dir, languages, eval_models, eval_method)
+        score_model(gen_file, output_dir, languages, eval_models, eval_method, judge_concurrency, checkpoint_every)
 
 
 if __name__ == "__main__":
