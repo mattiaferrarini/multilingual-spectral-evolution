@@ -78,7 +78,7 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
 
     Returns df_correlations.
     """
-    phase_cols = ["language", "valley_tokens",
+    phase_cols = ["language", "valley_tokens", "rankme_valley",
                   "rankme_first", "rankme_last", "rankme_initial_drop_rate",
                   "rankme_early_mean", "rankme_medium_mean", "rankme_late_mean",
                   "rankme_before_valley", "rankme_after_valley"]
@@ -90,6 +90,7 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
         merged = df_t.merge(df_geometry[phase_cols], on="language", how="inner")
         for x_col, x_label in [
             ("rankme_first",             "RankMe at first ckpt"),
+            ("rankme_valley",            "RankMe at valley"),
             ("valley_tokens",            "Valley of first descent (B)"),
             ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
             ("rankme_last",              "RankMe at last ckpt"),

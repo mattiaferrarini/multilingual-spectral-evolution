@@ -125,7 +125,7 @@ def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
 def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
                  checkpoints_all, token_counts, langs_sorted, model_label, plots_dir,
                  model_key="", df_geometry=None) -> None:
-    """Dual-axis RankMe + accuracy overlay per language, with pre/post-minimum colouring."""
+    """Dual-axis RankMe + accuracy overlay per language, one figure per task."""
     tc = np.array(token_counts, dtype=float)
     valley_lookup = (
         dict(zip(df_geometry["language"], df_geometry["valley_tokens"]))
@@ -446,6 +446,7 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
     _SHORT = {
         "RankMe at first ckpt":              "RankMe first ckpt",
+        "RankMe at valley":                  "RankMe at valley",
         "Valley of first descent (B)":       "Valley (B)",
         "Initial RankMe drop rate (1/B)":    "Initial drop rate (1/B)",
         "RankMe at last ckpt":               "RankMe last ckpt",
