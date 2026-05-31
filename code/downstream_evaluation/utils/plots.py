@@ -193,19 +193,25 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
             axes[idx // ncols][idx % ncols].set_visible(False)
 
         # Figure-level legend
-        pre_patch  = mpatches.Patch(color=_COLOR_PRE,  label="Pre-minimum (RankMe)")
-        post_patch = mpatches.Patch(color=_COLOR_POST, label="Post-minimum (RankMe)")
-        min_handle = plt.Line2D([0], [0], marker="*", color="w",
-                                 markerfacecolor=_COLOR_MIN, markersize=13, label="Minimum")
-        acc_handle = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
-                                 marker="s", markersize=6, label="Accuracy")
-        fig.legend(handles=[pre_patch, post_patch, min_handle, acc_handle],
-                   loc="lower right", fontsize=9, ncol=4,
+        pre_patch    = mpatches.Patch(color=_COLOR_PRE,  label="Pre-minimum (RankMe)")
+        post_patch   = mpatches.Patch(color=_COLOR_POST, label="Post-minimum (RankMe)")
+        min_handle   = plt.Line2D([0], [0], marker="*", color="w",
+                                   markerfacecolor=_COLOR_MIN, markersize=13, label="Minimum")
+        acc_handle   = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
+                                   marker="s", markersize=6, label="Accuracy")
+        grok_handle  = plt.Line2D([0], [0], color="purple", lw=1.5, ls="--",
+                                   label="Grokking onset")
+        fig.legend(handles=[pre_patch, post_patch, min_handle, acc_handle, grok_handle],
+                   loc="lower right", fontsize=9, ncol=5,
                    framealpha=0.9, edgecolor="lightgray")
 
-        fig.suptitle(f"[{model_label}] RankMe vs {task.upper()} accuracy",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout(rect=[0, 0.04, 1, 1])
+        task_label = task.replace("_", "-").upper()
+        fig.suptitle(
+            f"{model_label}  —  {task_label}\n"
+            "RankMe trajectory vs. accuracy per language",
+            fontsize=13, fontweight="bold",
+        )
+        plt.tight_layout(rect=[0, 0.04, 1, 0.96])
         suffix = f"_{model_key}" if model_key else ""
         path = Path(plots_dir) / f"overlay_{task}{suffix}.png"
         plt.savefig(path, dpi=120, bbox_inches="tight")
@@ -452,20 +458,21 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
         "RankMe at last ckpt":               "RankMe last ckpt",
         "Mean RankMe — first 25% of tokens": "Mean 0–25%",
         "Mean RankMe — first 50% of tokens": "Mean 0–50%",
+        "Mean RankMe — last 50% of tokens":  "Mean 50–100%",
         "Mean RankMe — last 25% of tokens":  "Mean 75–100%",
         "Mean RankMe — before valley":       "Mean before valley",
         "Mean RankMe — after valley":        "Mean after valley",
     }
     _PRED_ORDER = list(_SHORT.keys())
     _COLS = [
-        ("m_mmlu",    "Grokking onset (B)", "M-MMLU\nGrokking onset"),
-        ("m_mmlu",    "Peak accuracy",      "M-MMLU\nPeak accuracy"),
-        ("xcopa",     "Grokking onset (B)", "XCOPA\nGrokking onset"),
-        ("xcopa",     "Peak accuracy",      "XCOPA\nPeak accuracy"),
-        ("belebele",  "Grokking onset (B)", "Belebele\nGrokking onset"),
-        ("belebele",  "Peak accuracy",      "Belebele\nPeak accuracy"),
-        ("m_arc",     "Grokking onset (B)", "M-ARC\nGrokking onset"),
-        ("m_arc",     "Peak accuracy",      "M-ARC\nPeak accuracy"),
+        ("m_mmlu",   "Grokking onset (B)", "M-MMLU\nGrokking onset"),
+        ("m_mmlu",   "Peak accuracy",      "M-MMLU\nPeak accuracy"),
+        ("xcopa",    "Grokking onset (B)", "XCOPA\nGrokking onset"),
+        ("xcopa",    "Peak accuracy",      "XCOPA\nPeak accuracy"),
+        ("belebele", "Grokking onset (B)", "Belebele\nGrokking onset"),
+        ("belebele", "Peak accuracy",      "Belebele\nPeak accuracy"),
+        ("m_arc",    "Grokking onset (B)", "M-ARC\nGrokking onset"),
+        ("m_arc",    "Peak accuracy",      "M-ARC\nPeak accuracy"),
     ]
 
     n    = len(models_data)

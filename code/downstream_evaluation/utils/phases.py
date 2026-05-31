@@ -2,7 +2,7 @@
 RankMe geometry metrics from training trajectories.
 
 For each language, identifies the peak token count and computes magnitude-based
-metrics: initial richness, valley of first descent (K=2 robust), final richness,
+metrics: initial richness, valley of first descent, final richness,
 and the initial drop rate.
 
 The main entry point is compute_geometry(), which returns a DataFrame with one
@@ -101,6 +101,7 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
       rankme_initial_drop_rate — (rankme_first - rankme_valley) / (valley_tokens - first_tokens)
       rankme_early_mean        — mean RankMe over checkpoints in the first 25% of token range
       rankme_medium_mean       — mean RankMe over checkpoints in the first 50% of token range
+      rankme_late_half_mean    — mean RankMe over checkpoints in the last 50% of token range
       rankme_late_mean         — mean RankMe over checkpoints in the last 25% of token range
       rankme_before_valley     — mean RankMe from the first checkpoint up to and including the valley
       rankme_after_valley      — mean RankMe from the checkpoint after the valley to the last
@@ -126,11 +127,12 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         else:
             rankme_initial_drop_rate = float("nan")
 
-        rankme_early_mean    = _nanmean_slice(rv, tc <= 0.25 * t_max)
-        rankme_medium_mean   = _nanmean_slice(rv, tc <= 0.50 * t_max)
-        rankme_late_mean     = _nanmean_slice(rv, tc >= 0.75 * t_max)
-        rankme_before_valley = _nanmean_slice(rv, np.arange(len(tc)) <= valley_idx)
-        rankme_after_valley  = _nanmean_slice(rv, np.arange(len(tc)) >  valley_idx)
+        rankme_early_mean     = _nanmean_slice(rv, tc <= 0.25 * t_max)
+        rankme_medium_mean    = _nanmean_slice(rv, tc <= 0.50 * t_max)
+        rankme_late_half_mean = _nanmean_slice(rv, tc >= 0.50 * t_max)
+        rankme_late_mean      = _nanmean_slice(rv, tc >= 0.75 * t_max)
+        rankme_before_valley  = _nanmean_slice(rv, np.arange(len(tc)) <= valley_idx)
+        rankme_after_valley   = _nanmean_slice(rv, np.arange(len(tc)) >  valley_idx)
 
         records.append({
             "language":                 lang,
@@ -142,6 +144,7 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
             "rankme_initial_drop_rate": rankme_initial_drop_rate,
             "rankme_early_mean":        rankme_early_mean,
             "rankme_medium_mean":       rankme_medium_mean,
+            "rankme_late_half_mean":    rankme_late_half_mean,
             "rankme_late_mean":         rankme_late_mean,
             "rankme_before_valley":     rankme_before_valley,
             "rankme_after_valley":      rankme_after_valley,

@@ -68,44 +68,55 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
     """
     Compute Spearman + Pearson correlations: RankMe phase geometry → downstream accuracy.
 
-    Predictors:
-      - Compression onset / duration (timing-based — may have zero variance if all
-        languages peak at the same checkpoint, as in FuxiTranyu-8B)
-      - RankMe at first checkpoint (initial representation richness per language)
-      - RankMe at last checkpoint  (final representation richness per language)
-      - Valley of first descent     (token count at bottom of initial drop)
-      - Initial drop rate           (compression speed during first descent, Δ RankMe / B tokens)
+    Predictor sets are restricted by outcome to avoid using post-grokking data to
+    predict grokking onset:
+
+      Grokking onset uses only rankme_first: guaranteed pre-grokking in every
+      (model, task, language) combination, and sufficient — no other predictor
+      adds statistically significant signal beyond it for this outcome.
+
+      Peak accuracy uses all 11 predictors (retrospective — no leakage risk).
 
     Returns df_correlations.
     """
+    _GROKKING = [
+        ("rankme_first", "RankMe at first ckpt"),
+    ]
+    _ALL = [
+        ("rankme_first",             "RankMe at first ckpt"),
+        ("rankme_valley",            "RankMe at valley"),
+        ("valley_tokens",            "Valley of first descent (B)"),
+        ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
+        ("rankme_last",              "RankMe at last ckpt"),
+        ("rankme_early_mean",        "Mean RankMe — first 25% of tokens"),
+        ("rankme_medium_mean",       "Mean RankMe — first 50% of tokens"),
+        ("rankme_late_half_mean",    "Mean RankMe — last 50% of tokens"),
+        ("rankme_late_mean",         "Mean RankMe — last 25% of tokens"),
+        ("rankme_before_valley",     "Mean RankMe — before valley"),
+        ("rankme_after_valley",      "Mean RankMe — after valley"),
+    ]
+    _OUTCOME_PREDICTORS = [
+        ("grokking_tokens", "Grokking onset (B)", _GROKKING),
+        ("peak_accuracy",   "Peak accuracy",      _ALL),
+    ]
+
     phase_cols = ["language", "valley_tokens", "rankme_valley",
                   "rankme_first", "rankme_last", "rankme_initial_drop_rate",
-                  "rankme_early_mean", "rankme_medium_mean", "rankme_late_mean",
-                  "rankme_before_valley", "rankme_after_valley"]
+                  "rankme_early_mean", "rankme_medium_mean", "rankme_late_half_mean",
+                  "rankme_late_mean", "rankme_before_valley", "rankme_after_valley"]
     records = []
     for task in df_grokking["task"].unique():
         df_t = df_grokking[df_grokking["task"] == task]
         if df_t.empty:
             continue
         merged = df_t.merge(df_geometry[phase_cols], on="language", how="inner")
-        for x_col, x_label in [
-            ("rankme_first",             "RankMe at first ckpt"),
-            ("rankme_valley",            "RankMe at valley"),
-            ("valley_tokens",            "Valley of first descent (B)"),
-            ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
-            ("rankme_last",              "RankMe at last ckpt"),
-            ("rankme_early_mean",        "Mean RankMe — first 25% of tokens"),
-            ("rankme_medium_mean",       "Mean RankMe — first 50% of tokens"),
-            ("rankme_late_mean",         "Mean RankMe — last 25% of tokens"),
-            ("rankme_before_valley",     "Mean RankMe — before valley"),
-            ("rankme_after_valley",      "Mean RankMe — after valley"),
-        ]:
-            for y_col, y_label in [("grokking_tokens", "Grokking onset (B)"),
-                                    ("peak_accuracy",   "Peak accuracy")]:
+        for y_col, y_label, predictors in _OUTCOME_PREDICTORS:
+            for x_col, x_label in predictors:
                 corr = _correlate(merged[x_col], merged[y_col])
                 row  = {"task": task, "predictor (x)": x_label, "outcome (y)": y_label}
-                row.update(corr if corr else {"n_languages": 0, "spearman_r": None, "spearman_p": None,
-                                               "pearson_r": None, "pearson_p": None})
+                row.update(corr if corr else {"n_languages": 0, "spearman_r": None,
+                                               "spearman_p": None, "pearson_r": None,
+                                               "pearson_p": None})
                 records.append(row)
     return pd.DataFrame(records)
 
