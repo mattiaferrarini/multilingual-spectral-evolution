@@ -86,7 +86,7 @@ SHARED_RW_PVC="course-cs-552-shared-rw"
 
 echo ">>> Submitting ${JOB_NAME}  (1 GPU)"
 
-runai submit \
+MSYS_NO_PATHCONV=1 runai submit \
   --name "${JOB_NAME}" \
   -p "${PROJECT}" \
   --image "${IMAGE}" \
