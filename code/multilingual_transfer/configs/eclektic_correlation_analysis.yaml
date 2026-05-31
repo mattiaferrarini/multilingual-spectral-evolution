@@ -1,0 +1,20 @@
+geometry:
+  aggregation: last
+  layers:
+    start: 0.0   # relative: 0.0 = first layer, 1.0 = last layer
+    end: 1.0
+    step: 1      # absolute integer stride (1 = every layer, 2 = every other, …)
+
+correlation:
+  n_perm: 1000
+  ckpt_collapse: [null, average_rankme, average_predictors]
+  pairs_csv:         "code/results/eclektic_correlations/{model}/pairs.csv"
+  results_csv:       "code/results/eclektic_correlations/{model}/correlation_results.csv"
+  layer_summary_dir: "plots/eclektic_correlations/{model}/layer_summary"
+  timeseries_dir:    "plots/eclektic_correlations/{model}/timeseries"
+  heatmaps_dir:      "plots/eclektic_correlations/{model}/heatmaps"
+
+# Optional filters — omit a key (or comment it out) to keep all values.
+filter:
+  # predictors: [signed_diff, norm_asym]
+  correlations: [spearman, pearson]

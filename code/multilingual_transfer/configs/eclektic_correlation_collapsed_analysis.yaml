@@ -1,0 +1,20 @@
+geometry:
+  aggregation: last
+  layer_collapse: [average_rankme, average_predictors]  # collapse strategies to run
+  layers:
+    start: 0.0   # relative: 0.0 = first layer, 1.0 = last layer
+    end: 1.0
+    step: 1      # absolute integer stride (1 = every layer, 2 = every other, …)
+
+correlation:
+  n_perm: 1000
+  ckpt_collapse: [null, average_rankme, average_predictors]  # checkpoint aggregation methods
+  pairs_csv:       "code/results/eclektic_correlations_collapsed/{model}/pairs.csv"
+  results_csv:     "code/results/eclektic_correlations_collapsed/{model}/correlation_results.csv"
+  bar_summary_dir: "plots/eclektic_correlations_collapsed/{model}/bar_summary"
+  timeseries_dir:  "plots/eclektic_correlations_collapsed/{model}/timeseries"
+
+# Optional filters — omit a key (or comment it out) to keep all values.
+filter:
+  # predictors: [signed_diff, norm_asym]
+  correlations: [spearman, pearson]
