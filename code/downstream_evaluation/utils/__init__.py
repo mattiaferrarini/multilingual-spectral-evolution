@@ -2,13 +2,14 @@
 Utility package for the downstream evaluation results notebook.
 
 Modules:
-    checkpoints     — checkpoint name parsing and token-axis formatting
-    data            — loading RankMe and merged evaluation CSVs
-    phases          — entropy/compression phase identification from RankMe curves
-    grokking        — grokking onset detection from accuracy trajectories
-    correlations    — Spearman/Pearson correlation analysis
-    plots           — all visualisation functions
-    layer_selection — cross-language stratification analysis for layer selection
+    checkpoints      — checkpoint name parsing and token-axis formatting
+    data             — loading RankMe and merged evaluation CSVs
+    phases           — entropy/compression phase identification from RankMe curves
+    grokking         — grokking onset detection from accuracy trajectories
+    correlations     — Spearman/Pearson correlation analysis
+    plots            — all visualisation functions
+    layer_selection  — cross-language stratification analysis for layer selection
+    overlay_widget   — interactive ipywidgets UI for overlay plot task selection
 """
 
 from .config import load_config
@@ -25,3 +26,4 @@ from .plots import (plot_rankme_phases, plot_overlay,
                     plot_alpha_correlation_scatter_combined, plot_alpha_rate_scatter_combined,
                     plot_checkpoint_correlations,
                     PHASE_COLORS, PHASE_LABELS, ALPHA_PHASE_COLORS, ALPHA_PHASE_LABELS)
+from .overlay_widget import show_overlay_widget

@@ -114,7 +114,7 @@ def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
 
     fig.suptitle(f"[{model_label}] RankMe trajectories — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout(rect=[0, 0.04, 1, 1])
+    plt.tight_layout(rect=[0, 0.04, 1, 0.98])
     suffix = f"_{model_key}" if model_key else ""
     path = Path(plots_dir) / f"rankme_phases{suffix}.png"
     plt.savefig(path, dpi=120, bbox_inches="tight")
@@ -356,12 +356,15 @@ def _regression_label(valid, x_col, y_col):
         return None, None, f"n={len(valid)}"
 
 
-def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_dir) -> None:
+def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_dir,
+                           outcomes: list | None = None) -> None:
     """
-    Scatter: one RankMe predictor vs all outcomes × both tasks — both models overlaid.
+    Scatter: one RankMe predictor vs selected outcomes × all tasks — both models overlaid.
 
-    Layout: 2 rows (M-MMLU / XCOPA) × 2 columns (Grokking onset / Peak accuracy).
-    Call once per predictor for four focused, readable figures.
+    outcomes: list of (y_col, y_label) pairs to plot. Defaults to both grokking onset
+              and peak accuracy. Pass a restricted list to exclude outcomes that are not
+              methodologically valid for this predictor (e.g. exclude grokking onset for
+              predictors that may use post-grokking data).
     """
     _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA",
                     "belebele": "Belebele", "m_arc": "M-ARC"}
@@ -370,11 +373,14 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
         for t in (md["df_grokking"]["task"].unique() if not md["df_grokking"].empty else []):
             if t not in [x[0] for x in all_tasks]:
                 all_tasks.append((t, _TASK_LABELS.get(t, t.upper())))
-    outcomes = [("grokking_tokens", "Grokking onset (B)"), ("peak_accuracy", "Peak accuracy")]
+    if outcomes is None:
+        outcomes = [("grokking_tokens", "Grokking onset (B)"), ("peak_accuracy", "Peak accuracy")]
     token_cols = {"valley_tokens", "grokking_tokens"}
 
-    n_tasks = len(all_tasks)
-    fig, axes = plt.subplots(n_tasks, 2, figsize=(14, 5 * n_tasks), squeeze=False)
+    n_tasks   = len(all_tasks)
+    n_outcomes = len(outcomes)
+    fig, axes = plt.subplots(n_tasks, n_outcomes,
+                             figsize=(7 * n_outcomes, 5 * n_tasks), squeeze=False)
 
     for row_idx, (task, task_label) in enumerate(all_tasks):
         for col_idx, (y_col, y_label) in enumerate(outcomes):
@@ -436,7 +442,7 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
 
     fig.suptitle(f"{x_label} → downstream performance  [both models]",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
     path = Path(plots_dir) / f"scatter_{x_col}.png"
     plt.savefig(path, dpi=100)
     plt.show()
@@ -453,7 +459,6 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     _SHORT = {
         "RankMe at first ckpt":              "RankMe first ckpt",
         "RankMe at valley":                  "RankMe at valley",
-        "Valley of first descent (B)":       "Valley (B)",
         "Initial RankMe drop rate (1/B)":    "Initial drop rate (1/B)",
         "RankMe at last ckpt":               "RankMe last ckpt",
         "Mean RankMe — first 25% of tokens": "Mean 0–25%",

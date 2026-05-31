@@ -116,8 +116,9 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
                            for c in checkpoints_all], dtype=float)
         phases = _identify_phases_single(rv, token_counts)
 
-        rankme_first = float(rv[0])  if not np.isnan(rv[0])  else float("nan")
-        rankme_last  = float(rv[-1]) if not np.isnan(rv[-1]) else float("nan")
+        rankme_first = float(rv[0])               if not np.isnan(rv[0])  else float("nan")
+        rankme_last  = float(rv[-1])              if not np.isnan(rv[-1]) else float("nan")
+        rankme_peak  = float(np.nanmax(rv))       if np.any(~np.isnan(rv)) else float("nan")
 
         valley_idx, valley_tokens, rankme_valley = _find_valley(rv, tc, phases["peak_idx"])
         duration_to_valley = valley_tokens - tc[0]
@@ -137,6 +138,7 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         records.append({
             "language":                 lang,
             "peak_tokens":              phases["peak_tokens"],
+            "rankme_peak":              rankme_peak,
             "rankme_first":             rankme_first,
             "rankme_last":              rankme_last,
             "rankme_valley":            rankme_valley,

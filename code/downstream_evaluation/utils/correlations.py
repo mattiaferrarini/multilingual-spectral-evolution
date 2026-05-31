@@ -85,7 +85,6 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
     _ALL = [
         ("rankme_first",             "RankMe at first ckpt"),
         ("rankme_valley",            "RankMe at valley"),
-        ("valley_tokens",            "Valley of first descent (B)"),
         ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
         ("rankme_last",              "RankMe at last ckpt"),
         ("rankme_early_mean",        "Mean RankMe — first 25% of tokens"),
