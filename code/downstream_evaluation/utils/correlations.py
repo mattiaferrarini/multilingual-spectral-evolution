@@ -120,6 +120,56 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
     return pd.DataFrame(records)
 
 
+def compute_and_show_correlations(model_keys: list, data: dict) -> None:
+    """
+    Compute RankMe correlations for every model, store in data[m]["df_correlations"],
+    and print the table.
+
+    After this call, data[m] gains the key: df_correlations.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        if d["eval_available"] and not d["df_grokking"].empty:
+            df_correlations     = compute_correlations_table(d["df_grokking"], d["df_geometry"])
+            d["df_correlations"] = df_correlations
+            print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
+            print(df_correlations.to_string(index=False))
+        else:
+            d["df_correlations"] = pd.DataFrame()
+            print(f"[{m}] Skipping correlation analysis — no eval data available.")
+
+
+def compute_and_show_checkpoint_correlations(model_keys: list, data: dict) -> None:
+    """
+    Compute per-checkpoint cross-language correlations for every model,
+    store in data[m]["df_ckpt_corr"], and print a summary.
+
+    After this call, data[m] gains the key: df_ckpt_corr.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        if d["eval_available"]:
+            df_ckpt_corr     = compute_checkpoint_correlations(
+                d["df_layer"], d["df_eval"],
+                d["checkpoints_all"], d["token_counts"],
+                cfg["task_languages"],
+            )
+            d["df_ckpt_corr"] = df_ckpt_corr
+            print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
+            for task in cfg["task_languages"]:
+                df_t  = df_ckpt_corr[df_ckpt_corr["task"] == task]
+                valid = df_t.dropna(subset=["spearman_r"])
+                sig   = valid[valid["spearman_p"] < 0.05]
+                print(f"  {task}: {len(sig)}/{len(valid)} checkpoints with p<0.05 | "
+                      f"max ρ = {valid['spearman_r'].max():.3f} | "
+                      f"min ρ = {valid['spearman_r'].min():.3f}")
+        else:
+            d["df_ckpt_corr"] = pd.DataFrame()
+            print(f"[{m}] No eval data.")
+
+
 def compute_checkpoint_correlations(df_layer: pd.DataFrame, df_eval: pd.DataFrame,
                                     checkpoints_all: list, token_counts: list,
                                     task_languages: dict) -> pd.DataFrame:

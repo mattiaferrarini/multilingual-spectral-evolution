@@ -122,6 +122,22 @@ def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
     print(f"Saved: {path}")
 
 
+def show_rankme_phases(model_keys: list, data: dict) -> None:
+    """
+    Call plot_rankme_phases for every model using the data-dict convention.
+
+    data[m] must contain: df_layer, checkpoints_all, token_counts, langs_sorted,
+    cfg (with model_label, layer, aggregation, plots_dir), and optionally df_geometry.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        plot_rankme_phases(d["df_layer"], d["checkpoints_all"], d["token_counts"],
+                           d["langs_sorted"], cfg["model_label"], cfg["layer"],
+                           cfg["aggregation"], cfg["plots_dir"],
+                           model_key=m, df_geometry=d.get("df_geometry"))
+
+
 def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
                  checkpoints_all, token_counts, langs_sorted, model_label, plots_dir,
                  model_key="", df_geometry=None) -> None:
@@ -449,6 +465,44 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
     print(f"Saved: {path}")
 
 
+def _build_models_data(model_keys: list, data: dict) -> list:
+    return [
+        {
+            "label":           data[m]["cfg"]["model_label"],
+            "df_grokking":     data[m].get("df_grokking",     pd.DataFrame()),
+            "df_geometry":     data[m].get("df_geometry",     pd.DataFrame()),
+            "df_correlations": data[m].get("df_correlations", pd.DataFrame()),
+            "color":           data[m]["color"],
+            "marker":          data[m]["marker"],
+        }
+        for m in model_keys if data[m]["eval_available"]
+    ]
+
+
+def show_correlation_heatmap(model_keys: list, data: dict) -> None:
+    """
+    Build models_data and plot the correlation heatmap, or print a skip message.
+    """
+    models_data = _build_models_data(model_keys, data)
+    if models_data:
+        plot_correlation_heatmap(models_data, data[model_keys[0]]["cfg"]["plots_dir"])
+    else:
+        print("[INFO] Skipping heatmap — no eval data available.")
+
+
+def show_predictor_scatter(model_keys: list, data: dict,
+                           x_col: str, x_label: str) -> None:
+    """
+    Build models_data and plot the predictor scatter, or print a skip message.
+    """
+    models_data = _build_models_data(model_keys, data)
+    if models_data:
+        plot_predictor_scatter(models_data, x_col, x_label,
+                               data[model_keys[0]]["cfg"]["plots_dir"])
+    else:
+        print("[INFO] Skipping scatter — no eval data available.")
+
+
 def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
     Two-panel heatmap: rows = 9 RankMe predictors, columns = 4 outcomes (task × measure).
@@ -621,6 +675,21 @@ def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> Non
     print(f"Saved: {path}")
 
 
+def show_checkpoint_correlations(model_keys: list, data: dict) -> None:
+    """
+    Call plot_checkpoint_correlations for every model using the data-dict convention.
+
+    data[m] must contain: df_ckpt_corr, eval_available, cfg (with model_label, plots_dir).
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        if d["eval_available"] and not d["df_ckpt_corr"].empty:
+            plot_checkpoint_correlations(
+                d["df_ckpt_corr"], cfg["model_label"], cfg["plots_dir"], model_key=m
+            )
+
+
 def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
                                  plots_dir, model_key: str = "") -> None:
     """
@@ -688,7 +757,8 @@ def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
                                markersize=7, label="p ≥ 0.05")
         ax.legend(handles=[filled_h, open_h], fontsize=8)
 
-    axes_flat[0].set_ylabel("Spearman ρ  (RankMe vs accuracy, across languages)", fontsize=9)
+    for r in range(nrows):
+        axes[r][0].set_ylabel("Spearman ρ  (RankMe vs accuracy, across languages)", fontsize=9)
     fig.suptitle(
         f"[{model_label}] Cross-language Spearman(RankMe, accuracy) per checkpoint",
         fontsize=12, fontweight="bold")

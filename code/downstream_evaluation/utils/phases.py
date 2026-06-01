@@ -88,6 +88,42 @@ def _nanmean_slice(rv: np.ndarray, mask: np.ndarray) -> float:
     return float(np.mean(valid)) if len(valid) > 0 else float("nan")
 
 
+_GEOMETRY_DISPLAY_COLS = {
+    "language":                 "language",
+    "peak_tokens":              "peak (B)",
+    "rankme_peak":              "RankMe peak",
+    "rankme_first":             "RankMe first ckpt",
+    "rankme_valley":            "RankMe valley",
+    "valley_tokens":            "valley (B)",
+    "rankme_initial_drop_rate": "initial drop rate (1/B)",
+    "rankme_last":              "RankMe last ckpt",
+    "rankme_early_mean":        "mean early (0–25%)",
+    "rankme_medium_mean":       "mean medium (0–50%)",
+    "rankme_late_half_mean":    "mean late half (50–100%)",
+    "rankme_late_mean":         "mean late (75–100%)",
+    "rankme_before_valley":     "mean before valley",
+    "rankme_after_valley":      "mean after valley",
+}
+
+
+def compute_and_show_geometry(model_keys: list, data: dict) -> None:
+    """
+    Compute geometry metrics for every model, store in data[m]["df_geometry"],
+    and print the summary table.
+
+    After this call, data[m] gains the key: df_geometry.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        df_geometry     = compute_geometry(d["df_layer"], d["checkpoints_all"], d["token_counts"])
+        d["df_geometry"] = df_geometry
+        print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
+        print(df_geometry[list(_GEOMETRY_DISPLAY_COLS)]
+              .rename(columns=_GEOMETRY_DISPLAY_COLS)
+              .to_string(index=False))
+
+
 def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
                      token_counts: list) -> pd.DataFrame:
     """

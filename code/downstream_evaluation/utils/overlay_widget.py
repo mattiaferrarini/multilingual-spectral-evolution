@@ -41,7 +41,7 @@ def show_overlay_widget(models: list, data: dict) -> None:
     header = widgets.HTML(
         "<div style='font-size:11px; font-weight:600; color:#888; "
         "text-transform:uppercase; letter-spacing:0.6px; "
-        "border-bottom:1px solid #e0e0e0; padding-bottom:8px; margin-bottom:10px;'>"
+        "border-bottom:1px solid #e0e0e0; padding-bottom:5px; margin-bottom:7px;'>"
         "Task selection</div>"
     )
 
@@ -53,19 +53,19 @@ def show_overlay_widget(models: list, data: dict) -> None:
                 f"{data[m]['cfg']['model_label']}</span>"
             )]
             + list(checks[m].values()),
-            layout=widgets.Layout(align_items="center", margin="0 0 6px 0")
+            layout=widgets.Layout(align_items="center", margin="0 0 3px 0")
         )
         for m in models
     ]
 
     btn       = widgets.Button(description="Generate plots",   button_style="primary",
-                               layout=widgets.Layout(margin="0 8px 0 0", height="32px"))
+                               layout=widgets.Layout(margin="0 8px 0 0", height="28px"))
     reset_btn = widgets.Button(description="Reset to default", button_style="warning",
-                               layout=widgets.Layout(height="32px"))
+                               layout=widgets.Layout(height="28px"))
     controls  = widgets.VBox(
         [header] + rows + [widgets.HBox([btn, reset_btn],
-                                        layout=widgets.Layout(margin="14px 0 4px 0"))],
-        layout=widgets.Layout(padding="14px 16px 14px 16px", border="none", width="auto")
+                                        layout=widgets.Layout(margin="8px 0 0 0"))],
+        layout=widgets.Layout(padding="8px 16px 8px 16px", border="none", width="auto")
     )
 
     def draw(btn_event=None):

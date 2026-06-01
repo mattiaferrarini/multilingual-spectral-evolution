@@ -87,6 +87,30 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
     return fig
 
 
+def show_stratification(model_keys: list, data: dict) -> None:
+    """
+    Build, display, and save the cross-language stratification figure.
+
+    Wraps plot_stratification() with the data-dict convention used by the
+    notebook: data[m] must contain cfg (with model_label, rankme_csv,
+    plots_dir) and color.
+    """
+    models = [
+        dict(
+            label     = data[m]["cfg"]["model_label"],
+            csv       = data[m]["cfg"]["rankme_csv"],
+            color     = data[m]["color"],
+            model_key = m,
+        )
+        for m in model_keys
+    ]
+    fig = plot_stratification(models)
+    save_path = data[model_keys[0]]["cfg"]["plots_dir"] / "layer_stratification.png"
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {save_path}")
+
+
 def stratification_summary(models: list[dict]) -> pd.DataFrame:
     """
     Return a tidy DataFrame with peak-layer stats for each model.

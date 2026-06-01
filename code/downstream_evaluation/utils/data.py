@@ -41,6 +41,31 @@ def load_rankme_data(rankme_csv: Path, layer: str, aggregation: str) -> tuple:
     return df_rankme, df_layer, checkpoints_all, token_counts, langs_sorted
 
 
+def load_model_data(model_keys: list, data: dict) -> None:
+    """
+    Load RankMe geometry and evaluation data for every model and update data in-place.
+
+    After this call, data[m] gains the keys:
+      df_rankme, df_layer, checkpoints_all, token_counts, langs_sorted,
+      df_eval, eval_available
+    """
+    for m in model_keys:
+        cfg = data[m]["cfg"]
+        df_rankme, df_layer, checkpoints_all, token_counts, langs_sorted = load_rankme_data(
+            cfg["rankme_csv"], cfg["layer"], cfg["aggregation"])
+        df_eval, eval_available = load_eval_data(cfg["merged_csv"])
+        data[m].update({
+            "df_rankme":       df_rankme,
+            "df_layer":        df_layer,
+            "checkpoints_all": checkpoints_all,
+            "token_counts":    token_counts,
+            "langs_sorted":    langs_sorted,
+            "df_eval":         df_eval,
+            "eval_available":  eval_available,
+        })
+        print()
+
+
 def load_eval_data(merged_csv: Path) -> tuple:
     """
     Load the merged evaluation CSV produced by merge_results.py.
