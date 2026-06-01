@@ -1,0 +1,13 @@
+geometry:
+  aggregation: last
+
+correlation:
+  n_perm: 0
+  pairs_csv:      "code/results/xnli_law_correlations/{model}/pairs.csv"
+  results_csv:    "code/results/xnli_law_correlations/{model}/correlation_results.csv"
+  lollipop_dir:   "plots/xnli_law_correlations/{model}/lollipop"
+  heatmaps_dir:   "plots/xnli_law_correlations/{model}/heatmaps"
+  timeseries_dir: "plots/xnli_law_correlations/{model}/timeseries"
+
+filter:
+  correlations: [spearman, pearson]

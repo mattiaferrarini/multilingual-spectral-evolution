@@ -1,0 +1,27 @@
+model:
+  name: swiss-ai/Apertus-8B-2509
+
+output_dir: code/results/xnli
+
+icl:
+  k: [4, 8, 16]
+
+languages:
+  ar: Arabic
+  de: German
+  en: English
+  es: Spanish
+  fr: French
+  hi: Hindi
+  sw: Swahili
+  tr: Turkish
+  vi: Vietnamese
+  zh: Chinese
+
+geometry:
+  csv: code/results/apertus_fine_wiki.csv
+
+law:
+  csv: code/results/rankme_laws/ApertusPerLangACModel.csv
+  layer: layer_31
+  aggregation: last

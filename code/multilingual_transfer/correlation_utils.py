@@ -189,18 +189,19 @@ def _compute_correlations(pairs_df, n_perm=1000, fast=False,
                 records.append({**base, "scope": "pooled", "checkpoint": None, **(corr or _null_corr(correlations))})
 
     eff_n_perm = n_perm // FAST_PERM_DIVISOR if fast else n_perm
-    print(f"Running permutation tests ({eff_n_perm} permutations × {len(checkpoints)} checkpoints × {len(k_values)} k values)"
-          + (" [fast mode]" if fast else "") + "...")
     perm_pvals = {}
-    for k in k_values:
-        k_subset = pairs_df[pairs_df["k"] == k]
-        for ckpt in checkpoints:
-            ckpt_pairs = k_subset[k_subset["checkpoint"] == ckpt]
-            perm_pvals[(ckpt, k)] = _permutation_p_for_checkpoint(
-                ckpt_pairs, n_perm=eff_n_perm, fast=fast,
-                predictors=predictors, normalizations=normalizations, correlations=correlations,
-            )
-            print(f"  done: k={k}  {ckpt}")
+    if eff_n_perm > 0:
+        print(f"Running permutation tests ({eff_n_perm} permutations × {len(checkpoints)} checkpoints × {len(k_values)} k values)"
+              + (" [fast mode]" if fast else "") + "...")
+        for k in k_values:
+            k_subset = pairs_df[pairs_df["k"] == k]
+            for ckpt in checkpoints:
+                ckpt_pairs = k_subset[k_subset["checkpoint"] == ckpt]
+                perm_pvals[(ckpt, k)] = _permutation_p_for_checkpoint(
+                    ckpt_pairs, n_perm=eff_n_perm, fast=fast,
+                    predictors=predictors, normalizations=normalizations, correlations=correlations,
+                )
+                print(f"  done: k={k}  {ckpt}")
 
     for pred in predictors:
         for norm in normalizations:
@@ -211,7 +212,7 @@ def _compute_correlations(pairs_df, n_perm=1000, fast=False,
                     s = subset[subset["checkpoint"] == ckpt]
                     corr = _correlate(s[pred], s[norm], correlations)
                     if corr is not None:
-                        perm = perm_pvals[(ckpt, k)].get((pred, norm), {})
+                        perm = perm_pvals.get((ckpt, k), {}).get((pred, norm), {})
                         for coef in ("spearman", "pearson", "kendall"):
                             if coef in correlations:
                                 corr[f"{coef}_p"] = perm.get(f"{coef}_p", corr.get(f"{coef}_p"))

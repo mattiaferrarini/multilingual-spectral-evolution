@@ -1,0 +1,27 @@
+model:
+  name: TJUNLP/FuxiTranyu-8B
+
+output_dir: code/results/xnli
+
+icl:
+  k: [4, 8, 16]
+
+languages:
+  ar: Arabic
+  de: German
+  en: English
+  es: Spanish
+  fr: French
+  hi: Hindi
+  sw: Swahili
+  tr: Turkish
+  vi: Vietnamese
+  zh: Chinese
+
+geometry:
+  csv: code/results/fuxi_fine_wiki.csv
+
+law:
+  csv: code/results/rankme_laws/FuxiPerLangACModel.csv
+  layer: layer_29
+  aggregation: last

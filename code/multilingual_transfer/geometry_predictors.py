@@ -2,7 +2,10 @@
 RankMe geometry loading and predictor computation.
 
 Public API:
-  PREDICTORS                            -- list of predictor names
+  PREDICTORS                            -- list of checkpoint-based predictor names
+  LAW_PHASE1_PARAMS                     -- language-specific phase-1 parameters used
+  LAW_CURVE_PARAMS                      -- curve-shape scalar names derived from geometry
+  LAW_PREDICTORS                        -- list of static law-based predictor names
   load_geometry(csv_path, lang_map, layer, aggregation)
   discover_layers(csv_path, aggregation)
   select_layers(all_layers, start, end, step)
@@ -12,9 +15,16 @@ Public API:
   build_predictor_pairs(geom, common_sorted, lang_codes, t)
   build_predictor_pairs_avg_checkpoints(geom_by_ckpt, all_geom_ckpts_sorted, common_sorted, lang_codes, t)
   collapse_predictor_pairs_avg_layers(predictor_dfs)
+  load_law_params(law_csv_path)
+  build_law_predictors(law_lang_map, law_csv_path,
+                       geom_csv_path, geom_lang_map, layer, aggregation="last")
 
-Difference-based predictors: abs_diff, signed_diff, min_rankme, norm_asym
-Ratio-based predictors:      abs_ratio, signed_ratio, max_rankme, log_ratio
+Checkpoint-based predictors: abs_diff, signed_diff, min_rankme, norm_asym,
+                              abs_ratio, signed_ratio, max_rankme, log_ratio
+Static law-based predictors:  {alpha,A,drop_to_min,recovery,
+                                drop_minus_recovery,drop_over_recovery}
+                              × {abs_diff,signed_diff,min,max,
+                                 norm_asym,abs_ratio,signed_ratio,log_ratio}
 """
 
 from collections import defaultdict
@@ -26,6 +36,22 @@ from checkpoints import _checkpoint_sort_key
 
 PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym",
               "abs_ratio", "signed_ratio", "max_rankme", "log_ratio"]
+
+LAW_PHASE1_PARAMS = ["alpha", "A"]
+
+LAW_CURVE_PARAMS = [
+    "drop_to_min",
+    "recovery",
+    "drop_minus_recovery",
+    "drop_over_recovery",
+]
+
+LAW_PREDICTORS = [
+    f"{p}_{s}"
+    for p in (LAW_PHASE1_PARAMS + LAW_CURVE_PARAMS)
+    for s in ["abs_diff", "signed_diff", "min", "max",
+              "norm_asym", "abs_ratio", "signed_ratio", "log_ratio"]
+]
 
 
 def load_geometry(csv_path, lang_map, layer, aggregation):
@@ -216,3 +242,100 @@ def collapse_predictor_pairs_avg_layers(predictor_dfs):
                  "abs_ratio", "signed_ratio", "max_rankme", "log_ratio"]
     combined = pd.concat(predictor_dfs, ignore_index=True)
     return combined.groupby(key_cols)[pred_cols].mean().reset_index()
+
+
+def load_law_params(law_csv_path):
+    """
+    Load all scaling law parameters from a fitted-parameter CSV.
+
+    Returns {full_lang_name: {param: value}} for all columns in the CSV.
+    """
+    df = pd.read_csv(law_csv_path)
+    return {row["language"]: dict(row) for _, row in df.iterrows()}
+
+
+def _compute_geom_curve_scalars(geom, sorted_ckpts, lang_codes):
+    """
+    Compute per-language curve-shape scalars from observed RankMe values.
+
+    geom:         {(checkpoint, lang_code): rankme}  from load_geometry
+    sorted_ckpts: checkpoints ordered by _checkpoint_sort_key
+    lang_codes:   iterable of lang codes to compute
+
+    Returns {lang_code: {"drop_to_min": float, "recovery": float,
+                          "drop_minus_recovery": float, "drop_over_recovery": float}}
+    """
+    eps = 1e-12
+    result = {}
+    for lang in lang_codes:
+        vals = [geom[(ck, lang)] for ck in sorted_ckpts if (ck, lang) in geom]
+        if len(vals) < 2:
+            continue
+        rankme_first = vals[0]
+        min_val = min(vals)
+        min_idx = vals.index(min_val)
+        max_after_min = max(vals[min_idx:])
+        drop = rankme_first - min_val
+        rec  = max_after_min - min_val
+        result[lang] = {
+            "drop_to_min":         drop,
+            "recovery":            rec,
+            "drop_minus_recovery": drop - rec,
+            "drop_over_recovery":  drop / (rec + eps),
+        }
+    return result
+
+
+def build_law_predictors(law_lang_map, law_csv_path,
+                         geom_csv_path, geom_lang_map,
+                         layer, aggregation="last"):
+    """
+    Build a DataFrame of static predictors for each language pair.
+
+    law_lang_map:  {full_lang_name: lang_code}  e.g. {"Arabic": "ar", ...}
+                   Keys must match the "language" column in the fitted-parameter CSV.
+    law_csv_path:  path to the fitted scaling-law parameters CSV.
+    geom_csv_path: path to the geometry CSV (RankMe measurements).
+    geom_lang_map: {dataset_name: lang_code}  e.g. {"Arabic": "ar", ...}
+                   Keys must match the "dataset" column in the geometry CSV.
+    layer:         geometry layer to use (e.g. "layer_29"); read from caller's config.
+
+    Returns a DataFrame with one row per (src_lang, tgt_lang) where src_lang != tgt_lang.
+    Columns: src_lang, tgt_lang,
+             {p}_src, {p}_tgt for each p in LAW_PHASE1_PARAMS + LAW_CURVE_PARAMS,
+             plus all LAW_PREDICTORS columns.
+    """
+    raw = load_law_params(law_csv_path)
+    params = {law_lang_map[name]: vals for name, vals in raw.items() if name in law_lang_map}
+
+    geom = load_geometry(geom_csv_path, geom_lang_map, layer, aggregation)
+    sorted_ckpts = sorted({ck for ck, _ in geom}, key=_checkpoint_sort_key)
+    curve_scalars = _compute_geom_curve_scalars(geom, sorted_ckpts, params.keys())
+
+    lang_codes = sorted(k for k in params if k in curve_scalars)
+    eps = 1e-12
+    rows = []
+    for src in lang_codes:
+        for tgt in lang_codes:
+            if src == tgt:
+                continue
+            row = {"src_lang": src, "tgt_lang": tgt}
+            all_params = list(LAW_PHASE1_PARAMS) + list(LAW_CURVE_PARAMS)
+            src_vals = {**{p: params[src][p] for p in LAW_PHASE1_PARAMS},
+                        **curve_scalars[src]}
+            tgt_vals = {**{p: params[tgt][p] for p in LAW_PHASE1_PARAMS},
+                        **curve_scalars[tgt]}
+            for p in all_params:
+                s, t = src_vals[p], tgt_vals[p]
+                row[f"{p}_src"] = s
+                row[f"{p}_tgt"] = t
+                row[f"{p}_abs_diff"]     = abs(s - t)
+                row[f"{p}_signed_diff"]  = s - t
+                row[f"{p}_min"]          = min(s, t)
+                row[f"{p}_max"]          = max(s, t)
+                row[f"{p}_norm_asym"]    = (s - t) / (s + t + eps)
+                row[f"{p}_abs_ratio"]    = max(s, t) / (min(s, t) + eps)
+                row[f"{p}_signed_ratio"] = s / (t + eps)
+                row[f"{p}_log_ratio"]    = np.log(abs(s) + eps) - np.log(abs(t) + eps)
+            rows.append(row)
+    return pd.DataFrame(rows)
