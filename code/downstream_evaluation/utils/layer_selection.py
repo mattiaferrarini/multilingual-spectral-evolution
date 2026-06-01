@@ -1,8 +1,9 @@
 """
 Layer selection utilities for downstream correlation analysis.
 
-Computes cross-language RankMe stratification (std across languages at each
-layer, averaged over checkpoints) and plots the result for both models.
+Computes cross-language spectral metric stratification (std across languages
+at each layer, averaged over checkpoints) and plots the result for both models.
+Supports any column in the geometry CSV (e.g. rankme, alpha_req).
 """
 
 import re
@@ -18,9 +19,9 @@ def layer_num(name: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-def compute_stratification(csv, agg: str = "last") -> tuple:
+def compute_stratification(csv, agg: str = "last", metric: str = "rankme") -> tuple:
     """
-    For every layer compute std and mean of RankMe across languages
+    For every layer compute std and mean of `metric` across languages
     (each language value is its mean over all checkpoints).
 
     Returns (layer_numbers, stds, means).
@@ -31,32 +32,40 @@ def compute_stratification(csv, agg: str = "last") -> tuple:
     layers = sorted(df["layer"].unique(), key=layer_num)
     lnums  = [layer_num(l) for l in layers]
 
-    mean_df = df.groupby(["layer", "dataset"])["rankme"].mean().reset_index()
+    mean_df = df.groupby(["layer", "dataset"])[metric].mean().reset_index()
 
     stds, means = [], []
     for layer in layers:
-        vals = mean_df[mean_df["layer"] == layer]["rankme"].values
+        vals = mean_df[mean_df["layer"] == layer][metric].values
         stds.append(float(vals.std())  if len(vals) > 1 else 0.0)
         means.append(float(vals.mean()) if len(vals) > 0 else 0.0)
 
     return lnums, np.array(stds), np.array(means)
 
 
-def plot_stratification(models: list[dict]) -> plt.Figure:
-    """
-    Two-panel figure: cross-language RankMe std vs. layer for each model.
+_METRIC_LABELS = {
+    "rankme":    "RankMe",
+    "alpha_req": "AlphaReQ",
+}
 
-    Required keys per model dict: label, csv, color
+
+def plot_stratification(models: list[dict], metric: str = "rankme") -> plt.Figure:
     """
+    Two-panel figure: cross-language metric std vs. layer for each model.
+
+    Required keys per model dict: label, csv, color.
+    `metric` must be a column in the geometry CSV (e.g. "rankme", "alpha_req").
+    """
+    metric_label = _METRIC_LABELS.get(metric, metric)
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
-        "Cross-language RankMe spread by layer  (checkpoint mean)\n"
+        f"Cross-language {metric_label} spread by layer  (checkpoint mean)\n"
         "Higher std = languages more discriminable = stronger signal for correlation analysis",
         fontsize=13, y=1.03,
     )
 
     for ax, cfg in zip(axes, models):
-        lnums, stds, _ = compute_stratification(cfg["csv"])
+        lnums, stds, _ = compute_stratification(cfg["csv"], metric=metric)
         peak_idx   = int(np.argmax(stds))
         peak_layer = lnums[peak_idx]
         peak_std   = stds[peak_idx]
@@ -66,18 +75,22 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
         ax.fill_between(lnums, stds, alpha=0.12, color=cfg["color"])
 
         ax.axvline(peak_layer, color=cfg["color"], lw=1.8, ls="--", zorder=2)
-        x_offset = 1.5 if peak_layer < max(lnums) * 0.7 else -9
+        on_left      = peak_layer < max(lnums) * 0.7
+        x_pts        = 40 if on_left else -40
+        ha           = "left" if on_left else "right"
         ax.annotate(
-            f"layer {peak_layer}  ← selected\nstd = {peak_std:.0f}",
+            f"layer {peak_layer}\nstd = {peak_std:.2f}",
             xy=(peak_layer, peak_std),
-            xytext=(peak_layer + x_offset, peak_std * 0.82),
+            xytext=(x_pts, -30),
+            textcoords="offset points",
             fontsize=9, color=cfg["color"], fontweight="bold",
+            ha=ha, va="top",
             arrowprops=dict(arrowstyle="->", color=cfg["color"], lw=1.2),
         )
 
         ax.set_title(cfg["label"], fontsize=12, pad=8)
         ax.set_xlabel("Layer", fontsize=11)
-        ax.set_ylabel("Std(RankMe) across languages", fontsize=11)
+        ax.set_ylabel(f"Std({metric_label}) across languages", fontsize=11)
         ax.xaxis.set_major_locator(ticker.MultipleLocator(4))
         ax.grid(True, alpha=0.3)
         ax.set_xlim(left=0)
@@ -87,13 +100,17 @@ def plot_stratification(models: list[dict]) -> plt.Figure:
     return fig
 
 
-def show_stratification(model_keys: list, data: dict) -> None:
+def show_stratification(model_keys: list, data: dict,
+                        metric: str = "rankme") -> None:
     """
     Build, display, and save the cross-language stratification figure.
 
     Wraps plot_stratification() with the data-dict convention used by the
     notebook: data[m] must contain cfg (with model_label, rankme_csv,
     plots_dir) and color.
+
+    `metric` is passed to plot_stratification (e.g. "rankme", "alpha_req").
+    The output filename reflects the metric used.
     """
     models = [
         dict(
@@ -104,8 +121,9 @@ def show_stratification(model_keys: list, data: dict) -> None:
         )
         for m in model_keys
     ]
-    fig = plot_stratification(models)
-    save_path = data[model_keys[0]]["cfg"]["plots_dir"] / "layer_stratification.png"
+    fig = plot_stratification(models, metric=metric)
+    fname = f"{metric}_layer_stratification.png"
+    save_path = data[model_keys[0]]["cfg"]["plots_dir"] / fname
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
     print(f"Saved: {save_path}")

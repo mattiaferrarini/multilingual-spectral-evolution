@@ -31,29 +31,53 @@ def _correlate(x, y, min_pairs: int = 4) -> dict | None:
 def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
                                       df_alpha_phases: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute Spearman + Pearson correlations: AlphaReQ phase geometry → downstream accuracy.
+    Compute Spearman + Pearson correlations: AlphaReQ post-minimum geometry → downstream accuracy.
 
-    Predictors: regularization-decreasing onset (trough position) and
-    rate of α decline (drop in α per billion tokens during the regularization-increasing phase).
+    Predictor sets are restricted by outcome to avoid using post-grokking data:
+
+      Grokking onset uses only alpha_first: AlphaReQ at the first checkpoint,
+      at or before grokking onset in every (model, task, language) combination.
+      For Apertus this equals alpha_trough (the first checkpoint IS the minimum).
+
+      Peak accuracy uses all 9 post-minimum predictors (retrospective — no leakage risk).
+      All predictors are computed from the regularization-decreasing phase, which is
+      observable in both models.
+
+    Computed separately per task across all four benchmarks, never pooled.
     Returns df_alpha_correlations.
     """
+    _GROKKING = [
+        ("alpha_first", "AlphaReQ at first ckpt"),
+    ]
+    _ALL = [
+        ("alpha_first",                   "AlphaReQ at first ckpt"),
+        ("alpha_trough",                   "AlphaReQ at minimum"),
+        ("alpha_last",                     "AlphaReQ at last ckpt"),
+        ("alpha_postmin_rate",             "Initial AlphaReQ increase rate (1/B)"),
+        ("alpha_postmin_early_mean",       "Mean AlphaReQ — first 25% post-minimum"),
+        ("alpha_postmin_medium_mean",      "Mean AlphaReQ — first 50% post-minimum"),
+        ("alpha_postmin_late_half_mean",   "Mean AlphaReQ — last 50% post-minimum"),
+        ("alpha_postmin_late_mean",        "Mean AlphaReQ — last 25% post-minimum"),
+        ("alpha_postmin_mean",             "Mean AlphaReQ — full post-minimum"),
+    ]
+    _OUTCOME_PREDICTORS = [
+        ("grokking_tokens", "Grokking onset (B)", _GROKKING),
+        ("peak_accuracy",   "Peak accuracy",      _ALL),
+    ]
+
+    _PHASE_COLS = ["language", "alpha_first", "alpha_trough", "alpha_last",
+                   "alpha_postmin_rate", "alpha_postmin_early_mean",
+                   "alpha_postmin_medium_mean", "alpha_postmin_late_half_mean",
+                   "alpha_postmin_late_mean", "alpha_postmin_mean"]
+
     records = []
-    for task in ["m_mmlu", "xcopa"]:
+    for task in df_grokking["task"].unique():
         df_t = df_grokking[df_grokking["task"] == task]
         if df_t.empty:
             continue
-        merged = df_t.merge(
-            df_alpha_phases[["language", "reg_decreasing_onset_tokens",
-                              "reg_increasing_rate"]],
-            on="language", how="inner")
-        for x_col, x_label in [
-            ("reg_decreasing_onset_tokens", "Reg.-decreasing onset (B)"),
-            ("reg_increasing_rate",         "Rate of α decline (α/B)"),
-        ]:
-            for y_col, y_label in [
-                ("grokking_tokens", "Grokking onset (B)"),
-                ("peak_accuracy",   "Peak accuracy"),
-            ]:
+        merged = df_t.merge(df_alpha_phases[_PHASE_COLS], on="language", how="inner")
+        for y_col, y_label, predictors in _OUTCOME_PREDICTORS:
+            for x_col, x_label in predictors:
                 corr = _correlate(merged[x_col], merged[y_col])
                 row  = {"task": task, "predictor (x)": x_label, "outcome (y)": y_label}
                 row.update(corr if corr else {"n_languages": 0, "spearman_r": None,
@@ -120,6 +144,27 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
     return pd.DataFrame(records)
 
 
+def compute_and_show_alpha_correlations(model_keys: list, data: dict) -> None:
+    """
+    Compute AlphaReQ correlations for every model, store in data[m]["df_alpha_correlations"],
+    and print the table.
+
+    After this call, data[m] gains the key: df_alpha_correlations.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        if d["eval_available"] and not d["df_grokking"].empty:
+            df_alpha_correlations     = compute_alpha_correlations_table(d["df_grokking"],
+                                                                          d["df_alpha_phases"])
+            d["df_alpha_correlations"] = df_alpha_correlations
+            print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
+            print(df_alpha_correlations.to_string(index=False))
+        else:
+            d["df_alpha_correlations"] = pd.DataFrame()
+            print(f"[{m}] Skipping AlphaReQ correlation analysis — no eval data available.")
+
+
 def compute_and_show_correlations(model_keys: list, data: dict) -> None:
     """
     Compute RankMe correlations for every model, store in data[m]["df_correlations"],
@@ -140,11 +185,13 @@ def compute_and_show_correlations(model_keys: list, data: dict) -> None:
             print(f"[{m}] Skipping correlation analysis — no eval data available.")
 
 
-def compute_and_show_checkpoint_correlations(model_keys: list, data: dict) -> None:
+def compute_and_show_checkpoint_correlations(model_keys: list, data: dict,
+                                              metric: str = "rankme") -> None:
     """
     Compute per-checkpoint cross-language correlations for every model,
     store in data[m]["df_ckpt_corr"], and print a summary.
 
+    `metric` is passed to compute_checkpoint_correlations (e.g. "rankme", "alpha_req").
     After this call, data[m] gains the key: df_ckpt_corr.
     """
     for m in model_keys:
@@ -154,7 +201,7 @@ def compute_and_show_checkpoint_correlations(model_keys: list, data: dict) -> No
             df_ckpt_corr     = compute_checkpoint_correlations(
                 d["df_layer"], d["df_eval"],
                 d["checkpoints_all"], d["token_counts"],
-                cfg["task_languages"],
+                cfg["task_languages"], metric=metric,
             )
             d["df_ckpt_corr"] = df_ckpt_corr
             print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
@@ -172,16 +219,19 @@ def compute_and_show_checkpoint_correlations(model_keys: list, data: dict) -> No
 
 def compute_checkpoint_correlations(df_layer: pd.DataFrame, df_eval: pd.DataFrame,
                                     checkpoints_all: list, token_counts: list,
-                                    task_languages: dict) -> pd.DataFrame:
+                                    task_languages: dict,
+                                    metric: str = "rankme") -> pd.DataFrame:
     """
     For each (checkpoint, task) pair, compute the cross-language Spearman correlation
-    between RankMe and downstream accuracy at that checkpoint.
+    between `metric` and downstream accuracy at that checkpoint.
+
+    `metric` must be a column in df_layer (e.g. "rankme", "alpha_req").
 
     Returns a DataFrame with columns:
       checkpoint, token_count, task, spearman_r, spearman_p, n_languages
     """
     layer_by_ckpt = {
-        ckpt: grp.set_index("dataset")["rankme"]
+        ckpt: grp.set_index("dataset")[metric]
         for ckpt, grp in df_layer.groupby("checkpoint")
     }
     eval_by_ckpt_task = {

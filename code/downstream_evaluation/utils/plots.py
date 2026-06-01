@@ -279,11 +279,27 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
     print(f"Saved: {path}")
 
 
+def show_alpha_phases(model_keys: list, data: dict) -> None:
+    """
+    Call plot_alpha_phases for every model using the data-dict convention.
+
+    data[m] must contain: df_layer, df_alpha_phases, checkpoints_all, token_counts,
+    langs_sorted, cfg (with model_label, layer, aggregation, plots_dir).
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        plot_alpha_phases(d["df_layer"], d["df_alpha_phases"], d["checkpoints_all"],
+                          d["token_counts"], d["langs_sorted"], cfg["model_label"],
+                          cfg["layer"], cfg["aggregation"], cfg["plots_dir"],
+                          model_key=m)
+
+
 def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_languages,
                        random_chance, checkpoints_all, token_counts, langs_sorted,
                        model_label, plots_dir, model_key="") -> None:
     """Dual-axis AlphaReQ + accuracy overlay per language, with phase shading."""
-    for task in ["m_mmlu", "xcopa"]:
+    for task in task_languages:
         df_task = df_eval[df_eval["task"] == task]
         overlap = [l for l in task_languages[task]
                    if l in langs_sorted and l in df_task["language"].unique()]
@@ -337,9 +353,13 @@ def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_lan
         for idx in range(len(overlap), nrows * ncols):
             axes[idx // ncols][idx % ncols].set_visible(False)
 
-        fig.suptitle(f"[{model_label}] AlphaReQ vs {task.upper()} accuracy",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout()
+        task_label = task.replace("_", "-").upper()
+        fig.suptitle(
+            f"{model_label}  —  {task_label}\n"
+            "AlphaReQ trajectory vs. accuracy per language",
+            fontsize=13, fontweight="bold",
+        )
+        plt.tight_layout(rect=[0, 0.04, 1, 0.96])
         suffix = f"_{model_key}" if model_key else ""
         path = Path(plots_dir) / f"alpha_overlay_{task}{suffix}.png"
         plt.savefig(path)
@@ -465,12 +485,13 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
     print(f"Saved: {path}")
 
 
-def _build_models_data(model_keys: list, data: dict) -> list:
+def _build_models_data(model_keys: list, data: dict,
+                       geometry_key: str = "df_geometry") -> list:
     return [
         {
             "label":           data[m]["cfg"]["model_label"],
             "df_grokking":     data[m].get("df_grokking",     pd.DataFrame()),
-            "df_geometry":     data[m].get("df_geometry",     pd.DataFrame()),
+            "df_geometry":     data[m].get(geometry_key,      pd.DataFrame()),
             "df_correlations": data[m].get("df_correlations", pd.DataFrame()),
             "color":           data[m]["color"],
             "marker":          data[m]["marker"],
@@ -491,11 +512,16 @@ def show_correlation_heatmap(model_keys: list, data: dict) -> None:
 
 
 def show_predictor_scatter(model_keys: list, data: dict,
-                           x_col: str, x_label: str) -> None:
+                           x_col: str, x_label: str,
+                           geometry_key: str = "df_geometry") -> None:
     """
     Build models_data and plot the predictor scatter, or print a skip message.
+
+    geometry_key selects which per-model DataFrame holds the predictor column:
+      "df_geometry"    — RankMe geometry predictors (default)
+      "df_alpha_phases" — AlphaReQ phase predictors
     """
-    models_data = _build_models_data(model_keys, data)
+    models_data = _build_models_data(model_keys, data, geometry_key=geometry_key)
     if models_data:
         plot_predictor_scatter(models_data, x_col, x_label,
                                data[model_keys[0]]["cfg"]["plots_dir"])
@@ -606,6 +632,128 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     print(f"Saved: {path}")
 
 
+def plot_alpha_correlation_heatmap(models_data: list, plots_dir) -> None:
+    """
+    Two-panel heatmap: rows = 9 AlphaReQ post-minimum predictors,
+    columns = 4 outcomes (task × measure).
+    Color encodes Spearman ρ; * marks p < 0.05; gray = undefined / not used for outcome.
+
+    Required key per model dict: label, df_alpha_correlations, color.
+    """
+    _SHORT = {
+        "AlphaReQ at first ckpt":                 "AlphaReQ first ckpt",
+        "AlphaReQ at minimum":                     "AlphaReQ at minimum",
+        "AlphaReQ at last ckpt":                   "AlphaReQ last ckpt",
+        "Initial AlphaReQ increase rate (1/B)":    "Initial increase rate (1/B)",
+        "Mean AlphaReQ — first 25% post-minimum":  "Mean 0–25% post-min",
+        "Mean AlphaReQ — first 50% post-minimum":  "Mean 0–50% post-min",
+        "Mean AlphaReQ — last 50% post-minimum":   "Mean 50–100% post-min",
+        "Mean AlphaReQ — last 25% post-minimum":   "Mean 75–100% post-min",
+        "Mean AlphaReQ — full post-minimum":        "Mean full post-min",
+    }
+    _PRED_ORDER = list(_SHORT.keys())
+    _COLS = [
+        ("m_mmlu",   "Grokking onset (B)", "M-MMLU\nGrokking onset"),
+        ("m_mmlu",   "Peak accuracy",      "M-MMLU\nPeak accuracy"),
+        ("xcopa",    "Grokking onset (B)", "XCOPA\nGrokking onset"),
+        ("xcopa",    "Peak accuracy",      "XCOPA\nPeak accuracy"),
+        ("belebele", "Grokking onset (B)", "Belebele\nGrokking onset"),
+        ("belebele", "Peak accuracy",      "Belebele\nPeak accuracy"),
+        ("m_arc",    "Grokking onset (B)", "M-ARC\nGrokking onset"),
+        ("m_arc",    "Peak accuracy",      "M-ARC\nPeak accuracy"),
+    ]
+
+    n = len(models_data)
+    fig, axes = plt.subplots(1, n, figsize=(max(6, len(_COLS) * 0.9) * n, 8))
+    if n == 1:
+        axes = [axes]
+
+    cmap = plt.cm.RdBu_r.copy()
+    cmap.set_bad("lightgray")
+    im = None
+
+    for ax, md in zip(axes, models_data):
+        df = md.get("df_alpha_correlations", pd.DataFrame())
+
+        mat_r = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+        mat_p = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+
+        if not df.empty:
+            for ci, (task, outcome, _) in enumerate(_COLS):
+                for ri, pred in enumerate(_PRED_ORDER):
+                    row = df[(df["task"] == task) &
+                             (df["predictor (x)"] == pred) &
+                             (df["outcome (y)"] == outcome)]
+                    if not row.empty:
+                        mat_r[ri, ci] = float(row["spearman_r"].iloc[0])
+                        mat_p[ri, ci] = float(row["spearman_p"].iloc[0])
+
+        masked = np.ma.masked_invalid(mat_r)
+        im = ax.imshow(masked, cmap=cmap, vmin=-1, vmax=1, aspect="auto")
+
+        ax.set_xticks(np.arange(-0.5, len(_COLS), 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(_PRED_ORDER), 1), minor=True)
+        ax.grid(which="minor", color="white", linewidth=1.5)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        ax.set_xticks(range(len(_COLS)))
+        ax.set_xticklabels([c[2] for c in _COLS], fontsize=9, rotation=30)
+        ax.set_yticks(range(len(_PRED_ORDER)))
+        ax.set_yticklabels([_SHORT[p] for p in _PRED_ORDER], fontsize=9)
+
+        for ri in range(len(_PRED_ORDER)):
+            for ci in range(len(_COLS)):
+                r = mat_r[ri, ci]
+                p = mat_p[ri, ci]
+                if np.isnan(r):
+                    ax.text(ci, ri, "—", ha="center", va="center",
+                            fontsize=9, color="gray")
+                    continue
+                star   = "*" if (not np.isnan(p) and p < 0.05) else ""
+                txt    = f"{r:.2f}{star}"
+                color  = "white" if abs(r) > 0.55 else "black"
+                weight = "bold" if star else "normal"
+                ax.text(ci, ri, txt, ha="center", va="center",
+                        fontsize=9, color=color, fontweight=weight)
+
+        ax.set_title(md["label"], fontsize=11, pad=10)
+
+    fig.suptitle(
+        "Spearman ρ: AlphaReQ post-minimum geometry → downstream performance\n"
+        "* = p < 0.05  |  gray = undefined or predictor not used for outcome",
+        fontsize=12, fontweight="bold",
+    )
+    plt.tight_layout(rect=[0, 0, 0.91, 0.93])
+    if im is not None:
+        cbar_ax = fig.add_axes([0.93, 0.18, 0.015, 0.62])
+        cb = fig.colorbar(im, cax=cbar_ax)
+        cb.set_label("Spearman ρ", fontsize=10)
+    path = Path(plots_dir) / "alpha_correlation_heatmap.png"
+    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {path}")
+
+
+def show_alpha_correlation_heatmap(model_keys: list, data: dict) -> None:
+    """
+    Build alpha_models_data and plot the AlphaReQ correlation heatmap,
+    or print a skip message if no eval data is available.
+    """
+    models_data = [
+        {
+            "label":                data[m]["cfg"]["model_label"],
+            "df_alpha_correlations": data[m].get("df_alpha_correlations", pd.DataFrame()),
+            "color":                data[m]["color"],
+            "marker":               data[m]["marker"],
+        }
+        for m in model_keys if data[m]["eval_available"]
+    ]
+    if models_data:
+        plot_alpha_correlation_heatmap(models_data, data[model_keys[0]]["cfg"]["plots_dir"])
+    else:
+        print("[INFO] Skipping AlphaReQ heatmap — no eval data available.")
+
+
 def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> None:
     """Scatter: AlphaReQ trough position vs peak accuracy — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
@@ -675,10 +823,13 @@ def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> Non
     print(f"Saved: {path}")
 
 
-def show_checkpoint_correlations(model_keys: list, data: dict) -> None:
+def show_checkpoint_correlations(model_keys: list, data: dict,
+                                  metric: str = "rankme") -> None:
     """
     Call plot_checkpoint_correlations for every model using the data-dict convention.
 
+    `metric` is passed to plot_checkpoint_correlations to label the y-axis correctly
+    (e.g. "rankme" or "alpha_req").
     data[m] must contain: df_ckpt_corr, eval_available, cfg (with model_label, plots_dir).
     """
     for m in model_keys:
@@ -686,18 +837,21 @@ def show_checkpoint_correlations(model_keys: list, data: dict) -> None:
         cfg = d["cfg"]
         if d["eval_available"] and not d["df_ckpt_corr"].empty:
             plot_checkpoint_correlations(
-                d["df_ckpt_corr"], cfg["model_label"], cfg["plots_dir"], model_key=m
+                d["df_ckpt_corr"], cfg["model_label"], cfg["plots_dir"],
+                model_key=m, metric=metric
             )
 
 
 def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
-                                 plots_dir, model_key: str = "") -> None:
+                                 plots_dir, model_key: str = "",
+                                 metric: str = "rankme") -> None:
     """
-    Plot per-checkpoint cross-language Spearman(RankMe, accuracy) for both tasks.
+    Plot per-checkpoint cross-language Spearman(metric, accuracy) for all tasks.
 
     At each training checkpoint the correlation is computed across all languages
-    that have both RankMe and accuracy data for that task. Filled markers indicate
+    that have both metric and accuracy data for that task. Filled markers indicate
     p < 0.05; open markers indicate p ≥ 0.05.
+    `metric` controls the y-axis label (e.g. "rankme" or "alpha_req").
     """
     _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA",
                     "belebele": "Belebele", "m_arc": "M-ARC"}
@@ -757,14 +911,16 @@ def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
                                markersize=7, label="p ≥ 0.05")
         ax.legend(handles=[filled_h, open_h], fontsize=8)
 
+    metric_label = {"rankme": "RankMe", "alpha_req": "AlphaReQ"}.get(metric, metric)
     for r in range(nrows):
-        axes[r][0].set_ylabel("Spearman ρ  (RankMe vs accuracy, across languages)", fontsize=9)
+        axes[r][0].set_ylabel(
+            f"Spearman ρ  ({metric_label} vs accuracy, across languages)", fontsize=9)
     fig.suptitle(
-        f"[{model_label}] Cross-language Spearman(RankMe, accuracy) per checkpoint",
+        f"[{model_label}] Cross-language Spearman({metric_label}, accuracy) per checkpoint",
         fontsize=12, fontweight="bold")
     plt.tight_layout()
     suffix = f"_{model_key}" if model_key else ""
-    path   = Path(plots_dir) / f"checkpoint_correlations{suffix}.png"
+    path   = Path(plots_dir) / f"{metric}_checkpoint_correlations{suffix}.png"
     plt.savefig(path, dpi=120, bbox_inches="tight")
     plt.show()
     print(f"Saved: {path}")
