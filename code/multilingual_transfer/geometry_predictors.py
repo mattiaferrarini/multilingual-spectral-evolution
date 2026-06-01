@@ -12,6 +12,9 @@ Public API:
   build_predictor_pairs(geom, common_sorted, lang_codes, t)
   build_predictor_pairs_avg_checkpoints(geom_by_ckpt, all_geom_ckpts_sorted, common_sorted, lang_codes, t)
   collapse_predictor_pairs_avg_layers(predictor_dfs)
+
+Difference-based predictors: abs_diff, signed_diff, min_rankme, norm_asym
+Ratio-based predictors:      abs_ratio, signed_ratio, max_rankme, log_ratio
 """
 
 from collections import defaultdict
@@ -21,7 +24,8 @@ import pandas as pd
 
 from checkpoints import _checkpoint_sort_key
 
-PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym"]
+PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym",
+              "abs_ratio", "signed_ratio", "max_rankme", "log_ratio"]
 
 
 def load_geometry(csv_path, lang_map, layer, aggregation):
@@ -56,10 +60,14 @@ def select_layers(all_layers, start, end, step):
 
 def get_pred_values(rs, rt, pred_name):
     """Compute a single predictor from (arrays of) RankMe values for src and tgt."""
-    if pred_name == "abs_diff":    return np.abs(rs - rt)
-    if pred_name == "signed_diff": return rs - rt
-    if pred_name == "min_rankme":  return np.minimum(rs, rt)
-    if pred_name == "norm_asym":   return (rs - rt) / (rs + rt + 1e-12)
+    if pred_name == "abs_diff":     return np.abs(rs - rt)
+    if pred_name == "signed_diff":  return rs - rt
+    if pred_name == "min_rankme":   return np.minimum(rs, rt)
+    if pred_name == "norm_asym":    return (rs - rt) / (rs + rt + 1e-12)
+    if pred_name == "abs_ratio":    return np.maximum(rs, rt) / (np.minimum(rs, rt) + 1e-12)
+    if pred_name == "signed_ratio": return rs / (rt + 1e-12)
+    if pred_name == "max_rankme":   return np.maximum(rs, rt)
+    if pred_name == "log_ratio":    return np.log(rs + 1e-12) - np.log(rt + 1e-12)
 
 
 def build_rolled_geom_avg_rankme(geom, all_geom_ckpts_sorted, common_sorted):
@@ -108,7 +116,8 @@ def build_predictor_pairs(geom, common_sorted, lang_codes, t):
     equivalent on ["perf_checkpoint", "src_lang", "tgt_lang"].
 
     Columns: checkpoint, perf_checkpoint, src_lang, tgt_lang,
-             rankme_src, rankme_tgt, abs_diff, signed_diff, min_rankme, norm_asym
+             rankme_src, rankme_tgt, abs_diff, signed_diff, min_rankme, norm_asym,
+             abs_ratio, signed_ratio, max_rankme, log_ratio
     """
     rows = []
     langs = sorted(lang_codes)
@@ -134,6 +143,10 @@ def build_predictor_pairs(geom, common_sorted, lang_codes, t):
                     "signed_diff": rs - rt,
                     "min_rankme": min(rs, rt),
                     "norm_asym": (rs - rt) / (rs + rt + 1e-12),
+                    "abs_ratio": max(rs, rt) / (min(rs, rt) + 1e-12),
+                    "signed_ratio": rs / (rt + 1e-12),
+                    "max_rankme": max(rs, rt),
+                    "log_ratio": np.log(rs + 1e-12) - np.log(rt + 1e-12),
                 })
     return pd.DataFrame(rows)
 
@@ -146,7 +159,8 @@ def build_predictor_pairs_avg_checkpoints(geom_by_ckpt, all_geom_ckpts_sorted,
     rankme_src/tgt stored are the averages of raw RankMe (used by permutation tests).
 
     Columns: checkpoint, perf_checkpoint, src_lang, tgt_lang,
-             rankme_src, rankme_tgt, abs_diff, signed_diff, min_rankme, norm_asym
+             rankme_src, rankme_tgt, abs_diff, signed_diff, min_rankme, norm_asym,
+             abs_ratio, signed_ratio, max_rankme, log_ratio
     """
     rows = []
     langs = sorted(lang_codes)
@@ -183,6 +197,10 @@ def build_predictor_pairs_avg_checkpoints(geom_by_ckpt, all_geom_ckpts_sorted,
                     "signed_diff": float(np.mean([rs - rt for rs, rt in zip(rs_vals, rt_vals)])),
                     "min_rankme": float(np.mean([min(rs, rt) for rs, rt in zip(rs_vals, rt_vals)])),
                     "norm_asym": float(np.mean([(rs - rt) / (rs + rt + 1e-12) for rs, rt in zip(rs_vals, rt_vals)])),
+                    "abs_ratio": float(np.mean([max(rs, rt) / (min(rs, rt) + 1e-12) for rs, rt in zip(rs_vals, rt_vals)])),
+                    "signed_ratio": float(np.mean([rs / (rt + 1e-12) for rs, rt in zip(rs_vals, rt_vals)])),
+                    "max_rankme": float(np.mean([max(rs, rt) for rs, rt in zip(rs_vals, rt_vals)])),
+                    "log_ratio": float(np.mean([np.log(rs + 1e-12) - np.log(rt + 1e-12) for rs, rt in zip(rs_vals, rt_vals)])),
                 })
     return pd.DataFrame(rows)
 
@@ -194,6 +212,7 @@ def collapse_predictor_pairs_avg_layers(predictor_dfs):
                    build_predictor_pairs_avg_checkpoints (no target columns).
     """
     key_cols = ["checkpoint", "perf_checkpoint", "src_lang", "tgt_lang"]
-    pred_cols = ["rankme_src", "rankme_tgt", "abs_diff", "signed_diff", "min_rankme", "norm_asym"]
+    pred_cols = ["rankme_src", "rankme_tgt", "abs_diff", "signed_diff", "min_rankme", "norm_asym",
+                 "abs_ratio", "signed_ratio", "max_rankme", "log_ratio"]
     combined = pd.concat(predictor_dfs, ignore_index=True)
     return combined.groupby(key_cols)[pred_cols].mean().reset_index()

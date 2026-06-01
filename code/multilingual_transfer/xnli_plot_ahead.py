@@ -25,8 +25,7 @@ import pandas as pd
 import yaml
 
 from checkpoints import _checkpoint_sort_key
-
-PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym"]
+from geometry_predictors import PREDICTORS
 NORMALIZATIONS = ["row_norm", "col_norm"]
 
 CORR_TYPES = [

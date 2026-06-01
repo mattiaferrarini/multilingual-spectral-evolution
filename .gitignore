@@ -3,6 +3,10 @@ __pycache__
 .env
 .gitignore
 description.md
+
+# Large result files (exceed GitHub's 100MB limit)
+code/results/xnli_correlations_ahead/**/pairs.csv
+code/results/eclektic_correlations/**/pairs.csv
 CLAUDE.md
 plots/
 data/

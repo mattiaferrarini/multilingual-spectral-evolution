@@ -34,7 +34,7 @@ import yaml
 
 from checkpoints import _checkpoint_sort_key
 from correlation_utils import FAST_PERM_DIVISOR, _compute_correlations
-from eclektic_targets import ALL_TARGETS, TARGETS, load_eclektic_targets, load_string_targets
+from eclektic_targets import ALL_TARGETS, TARGETS, get_judge_targets, load_eclektic_targets, load_string_targets
 from geometry_predictors import (
     PREDICTORS,
     build_predictor_pairs,
@@ -46,14 +46,6 @@ from geometry_predictors import (
     load_geometry,
     select_layers,
 )
-
-PAIRS_COLS = [
-    "checkpoint", "src_lang", "tgt_lang",
-    "rankme_src", "rankme_tgt",
-    "abs_diff", "signed_diff", "min_rankme", "norm_asym",
-    "accuracy_majority", "overall_score", "transfer_score",
-    "transfer_score_str", "overall_score_str", "transfer_margin_str", "overall_margin_str",
-]
 
 
 def _parse_args():
@@ -127,9 +119,12 @@ def main():
     target_df = target_df.merge(string_df, on=["src_lang", "tgt_lang"])
     print(f"Loaded {len(target_df)} ECLeKTic target pairs")
 
+    judge_targets = get_judge_targets(cfg["output_dir"], short_model)
+    all_targets = ALL_TARGETS + judge_targets
+
     filter_cfg = analysis_cfg.get("filter", {})
     active_predictors = filter_cfg.get("predictors", PREDICTORS)
-    active_targets = filter_cfg.get("normalizations", ALL_TARGETS)
+    active_targets = filter_cfg.get("normalizations", all_targets)
     active_correlations = set(filter_cfg.get("correlations", ["spearman", "pearson", "kendall"]))
 
     n_perm = paths.get("n_perm", 1000)
@@ -162,7 +157,7 @@ def main():
                 )
                 pred_df = pred_df.drop(columns=["perf_checkpoint"], errors="ignore")
 
-                pairs_df = pred_df.merge(target_df, on=["src_lang", "tgt_lang"])[PAIRS_COLS]
+                pairs_df = pred_df.merge(target_df, on=["src_lang", "tgt_lang"])
                 pairs_df["k"] = 0
                 pairs_df["layer_collapse"] = layer_method
                 pairs_df["ckpt_collapse"] = ckpt_label
@@ -206,7 +201,7 @@ def main():
                 collapsed_pred = collapsed_pred.drop(columns=["perf_checkpoint"], errors="ignore")
 
                 pairs_df = (
-                    collapsed_pred.merge(target_df, on=["src_lang", "tgt_lang"])[PAIRS_COLS]
+                    collapsed_pred.merge(target_df, on=["src_lang", "tgt_lang"])
                     .sort_values(["checkpoint", "src_lang", "tgt_lang"])
                     .reset_index(drop=True)
                 )

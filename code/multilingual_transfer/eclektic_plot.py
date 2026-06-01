@@ -30,8 +30,7 @@ import yaml
 
 from checkpoints import _checkpoint_sort_key
 from eclektic_targets import ALL_TARGETS as TARGETS
-
-PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym"]
+from geometry_predictors import PREDICTORS
 
 CORR_TYPES = [
     ("pearson_r",  "pearson_p",  "Pearson r"),
