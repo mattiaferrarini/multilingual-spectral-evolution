@@ -93,6 +93,8 @@ _GEOMETRY_DISPLAY_COLS = {
     "peak_tokens":              "peak (B)",
     "rankme_peak":              "RankMe peak",
     "rankme_first":             "RankMe first ckpt",
+    "rankme_ckpt10":            "RankMe ckpt 10",
+    "rankme_first10_mean":      "mean first 10 ckpts",
     "rankme_valley":            "RankMe valley",
     "valley_tokens":            "valley (B)",
     "rankme_initial_drop_rate": "initial drop rate (1/B)",
@@ -156,6 +158,9 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         rankme_last  = float(rv[-1])              if not np.isnan(rv[-1]) else float("nan")
         rankme_peak  = float(np.nanmax(rv))       if np.any(~np.isnan(rv)) else float("nan")
 
+        rankme_ckpt10       = float(rv[9]) if len(rv) > 9 and not np.isnan(rv[9]) else float("nan")
+        rankme_first10_mean = _nanmean_slice(rv, np.arange(len(tc)) < 10)
+
         valley_idx, valley_tokens, rankme_valley = _find_valley(rv, tc, phases["peak_idx"])
         duration_to_valley = valley_tokens - tc[0]
         if (not np.isnan(rankme_first) and not np.isnan(rankme_valley)
@@ -176,6 +181,8 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
             "peak_tokens":              phases["peak_tokens"],
             "rankme_peak":              rankme_peak,
             "rankme_first":             rankme_first,
+            "rankme_ckpt10":            rankme_ckpt10,
+            "rankme_first10_mean":      rankme_first10_mean,
             "rankme_last":              rankme_last,
             "rankme_valley":            rankme_valley,
             "valley_tokens":            valley_tokens,
