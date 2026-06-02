@@ -51,6 +51,8 @@ def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
     ]
     _ALL = [
         ("alpha_first",                   "AlphaReQ at first ckpt"),
+        ("alpha_ckpt10",                  "AlphaReQ at ckpt 10"),
+        ("alpha_first10_mean",            "Mean AlphaReQ — first 10 ckpts"),
         ("alpha_trough",                   "AlphaReQ at minimum"),
         ("alpha_last",                     "AlphaReQ at last ckpt"),
         ("alpha_postmin_rate",             "Initial AlphaReQ increase rate (1/B)"),
@@ -65,7 +67,8 @@ def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
         ("peak_accuracy",   "Peak accuracy",      _ALL),
     ]
 
-    _PHASE_COLS = ["language", "alpha_first", "alpha_trough", "alpha_last",
+    _PHASE_COLS = ["language", "alpha_first", "alpha_ckpt10", "alpha_first10_mean",
+                   "alpha_trough", "alpha_last",
                    "alpha_postmin_rate", "alpha_postmin_early_mean",
                    "alpha_postmin_medium_mean", "alpha_postmin_late_half_mean",
                    "alpha_postmin_late_mean", "alpha_postmin_mean"]

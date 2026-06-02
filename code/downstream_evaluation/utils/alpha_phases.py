@@ -135,6 +135,10 @@ def compute_alpha_phases(df_layer: pd.DataFrame, checkpoints_all: list,
         alpha_trough = float(av[trough_idx]) if not np.isnan(av[trough_idx]) else float("nan")
         alpha_last  = float(av[-1])         if not np.isnan(av[-1])         else float("nan")
 
+        alpha_ckpt10 = float(av[9]) if len(av) > 9 and not np.isnan(av[9]) else float("nan")
+        valid10 = av[:10][~np.isnan(av[:10])]
+        alpha_first10_mean = float(np.mean(valid10)) if len(valid10) > 0 else float("nan")
+
         reg_increasing_rate = (
             (alpha_first - alpha_trough) / duration_b
             if duration_b > 0 and not np.isnan(alpha_first) and not np.isnan(alpha_trough)
@@ -153,6 +157,8 @@ def compute_alpha_phases(df_layer: pd.DataFrame, checkpoints_all: list,
             "reg_decreasing_duration_tokens": _phase_duration(phases, "regularization_decreasing"),
             # Post-minimum predictors
             "alpha_first":                    alpha_first,
+            "alpha_ckpt10":                   alpha_ckpt10,
+            "alpha_first10_mean":             alpha_first10_mean,
             "alpha_trough":                   alpha_trough,
             "alpha_last":                     alpha_last,
             "alpha_postmin_rate":             _postmin_rate(av, tc, trough_idx),
@@ -169,6 +175,8 @@ _ALPHA_DISPLAY_COLS = {
     "language":                     "language",
     "trough_tokens":                "trough (B)",
     "alpha_first":                  "AlphaReQ first ckpt",
+    "alpha_ckpt10":                 "AlphaReQ ckpt 10",
+    "alpha_first10_mean":           "mean first 10 ckpts",
     "alpha_trough":                 "AlphaReQ at minimum",
     "alpha_last":                   "AlphaReQ last ckpt",
     "alpha_postmin_rate":           "initial increase rate (1/B)",

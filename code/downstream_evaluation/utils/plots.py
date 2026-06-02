@@ -636,7 +636,7 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
 
 def plot_alpha_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
-    Two-panel heatmap: rows = 9 AlphaReQ post-minimum predictors,
+    Two-panel heatmap: rows = 11 AlphaReQ predictors,
     columns = 4 outcomes (task × measure).
     Color encodes Spearman ρ; * marks p < 0.05; gray = undefined / not used for outcome.
 
@@ -644,6 +644,8 @@ def plot_alpha_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
     _SHORT = {
         "AlphaReQ at first ckpt":                 "AlphaReQ first ckpt",
+        "AlphaReQ at ckpt 10":                    "AlphaReQ ckpt 10",
+        "Mean AlphaReQ — first 10 ckpts":         "Mean first 10 ckpts",
         "AlphaReQ at minimum":                     "AlphaReQ at minimum",
         "AlphaReQ at last ckpt":                   "AlphaReQ last ckpt",
         "Initial AlphaReQ increase rate (1/B)":    "Initial increase rate (1/B)",
