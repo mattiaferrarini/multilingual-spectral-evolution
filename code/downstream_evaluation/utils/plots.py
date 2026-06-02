@@ -531,13 +531,15 @@ def show_predictor_scatter(model_keys: list, data: dict,
 
 def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
-    Two-panel heatmap: rows = 9 RankMe predictors, columns = 4 outcomes (task × measure).
+    Two-panel heatmap: rows = 12 RankMe predictors, columns = 4 outcomes (task × measure).
     Color encodes Spearman ρ; * marks p < 0.05; gray = undefined (zero variance).
 
     Required key per model dict: label, df_correlations, color.
     """
     _SHORT = {
         "RankMe at first ckpt":              "RankMe first ckpt",
+        "RankMe at ckpt 10":                 "RankMe ckpt 10",
+        "Mean RankMe — first 10 ckpts":      "Mean first 10 ckpts",
         "RankMe at valley":                  "RankMe at valley",
         "Initial RankMe drop rate (1/B)":    "Initial drop rate (1/B)",
         "RankMe at last ckpt":               "RankMe last ckpt",
