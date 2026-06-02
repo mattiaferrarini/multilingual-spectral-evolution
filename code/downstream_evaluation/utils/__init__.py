@@ -19,7 +19,7 @@ from .phases import compute_geometry, compute_and_show_geometry
 from .alpha_phases import compute_alpha_phases, compute_and_show_alpha_phases
 from .grokking import compute_grokking, compute_and_show_grokking
 from .correlations import compute_correlations_table, compute_and_show_correlations, compute_alpha_correlations_table, compute_and_show_alpha_correlations, compute_checkpoint_correlations, compute_and_show_checkpoint_correlations
-from .layer_selection import compute_stratification, plot_stratification, stratification_summary, show_stratification
+from .layer_selection import compute_stratification, plot_stratification, stratification_summary, show_stratification, layer_selection_sweep
 from .plots import (plot_rankme_phases, show_rankme_phases, plot_overlay,
                     plot_alpha_phases, show_alpha_phases, plot_alpha_overlay,
                     plot_predictor_scatter, show_predictor_scatter,

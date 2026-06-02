@@ -13,21 +13,32 @@ import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 
+from .checkpoints import sort_checkpoints
+
 
 def layer_num(name: str) -> int:
     m = re.search(r"(\d+)", str(name))
     return int(m.group(1)) if m else 0
 
 
-def compute_stratification(csv, agg: str = "last", metric: str = "rankme") -> tuple:
+def compute_stratification(csv, agg: str = "last", metric: str = "rankme",
+                           n_first_checkpoints: int | None = None) -> tuple:
     """
     For every layer compute std and mean of `metric` across languages
-    (each language value is its mean over all checkpoints).
+    (each language value is its mean over checkpoints).
+
+    If n_first_checkpoints is given, only the first N checkpoints (by token
+    count) are used — simulating early-training layer selection.
 
     Returns (layer_numbers, stds, means).
     """
     df = pd.read_csv(csv)
     df = df[df["aggregation"] == agg].copy()
+
+    if n_first_checkpoints is not None:
+        sorted_ckpts = sort_checkpoints(df["checkpoint"].unique())
+        keep = set(sorted_ckpts[:n_first_checkpoints])
+        df = df[df["checkpoint"].isin(keep)]
 
     layers = sorted(df["layer"].unique(), key=layer_num)
     lnums  = [layer_num(l) for l in layers]
@@ -43,29 +54,65 @@ def compute_stratification(csv, agg: str = "last", metric: str = "rankme") -> tu
     return lnums, np.array(stds), np.array(means)
 
 
+def layer_selection_sweep(csv, agg: str = "last", metric: str = "rankme") -> pd.DataFrame:
+    """
+    For each N from 1 to the total checkpoint count, compute cross-language
+    stratification using only the first N checkpoints and record which layer
+    is selected (highest std).
+
+    Returns a DataFrame with columns:
+        n_checkpoints, selected_layer, peak_std, stable
+    where `stable` is True when the selected layer is the same as for N-1.
+    """
+    df_full = pd.read_csv(csv)
+    df_full = df_full[df_full["aggregation"] == agg]
+    all_ckpts = sort_checkpoints(df_full["checkpoint"].unique())
+    total = len(all_ckpts)
+
+    records = []
+    prev_layer = None
+    for n in range(1, total + 1):
+        lnums, stds, _ = compute_stratification(csv, agg=agg, metric=metric,
+                                                 n_first_checkpoints=n)
+        peak_idx = int(np.argmax(stds))
+        layer    = lnums[peak_idx]
+        records.append({
+            "n_checkpoints":  n,
+            "selected_layer": layer,
+            "peak_std":       round(float(stds[peak_idx]), 4),
+            "stable":         layer == prev_layer,
+        })
+        prev_layer = layer
+    return pd.DataFrame(records)
+
+
 _METRIC_LABELS = {
     "rankme":    "RankMe",
     "alpha_req": "AlphaReQ",
 }
 
 
-def plot_stratification(models: list[dict], metric: str = "rankme") -> plt.Figure:
+def plot_stratification(models: list[dict], metric: str = "rankme",
+                        n_first_checkpoints: int | None = None) -> plt.Figure:
     """
     Two-panel figure: cross-language metric std vs. layer for each model.
 
     Required keys per model dict: label, csv, color.
     `metric` must be a column in the geometry CSV (e.g. "rankme", "alpha_req").
+    `n_first_checkpoints` limits to the first N checkpoints for stratification.
     """
     metric_label = _METRIC_LABELS.get(metric, metric)
+    n_label = f"first {n_first_checkpoints} checkpoints" if n_first_checkpoints else "all checkpoints"
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
-        f"Cross-language {metric_label} spread by layer  (checkpoint mean)\n"
+        f"Cross-language {metric_label} spread by layer  ({n_label})\n"
         "Higher std = languages more discriminable = stronger signal for correlation analysis",
         fontsize=13, y=1.03,
     )
 
     for ax, cfg in zip(axes, models):
-        lnums, stds, _ = compute_stratification(cfg["csv"], metric=metric)
+        lnums, stds, _ = compute_stratification(cfg["csv"], metric=metric,
+                                                 n_first_checkpoints=n_first_checkpoints)
         peak_idx   = int(np.argmax(stds))
         peak_layer = lnums[peak_idx]
         peak_std   = stds[peak_idx]
@@ -101,7 +148,8 @@ def plot_stratification(models: list[dict], metric: str = "rankme") -> plt.Figur
 
 
 def show_stratification(model_keys: list, data: dict,
-                        metric: str = "rankme") -> None:
+                        metric: str = "rankme",
+                        n_first_checkpoints: int | None = None) -> None:
     """
     Build, display, and save the cross-language stratification figure.
 
@@ -110,6 +158,7 @@ def show_stratification(model_keys: list, data: dict,
     plots_dir) and color.
 
     `metric` is passed to plot_stratification (e.g. "rankme", "alpha_req").
+    `n_first_checkpoints` limits stratification to the first N checkpoints.
     The output filename reflects the metric used.
     """
     models = [
@@ -121,7 +170,8 @@ def show_stratification(model_keys: list, data: dict,
         )
         for m in model_keys
     ]
-    fig = plot_stratification(models, metric=metric)
+    fig = plot_stratification(models, metric=metric,
+                              n_first_checkpoints=n_first_checkpoints)
     fname = f"{metric}_layer_stratification.png"
     save_path = data[model_keys[0]]["cfg"]["plots_dir"] / fname
     fig.savefig(save_path, dpi=150, bbox_inches="tight")

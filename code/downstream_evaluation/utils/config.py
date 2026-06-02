@@ -16,8 +16,8 @@ _BENCHMARKS_PATH = Path(__file__).parent.parent / "configs" / "benchmarks.yaml"
 _MODEL_CONFIGS = {
     "fuxi": {
         "rankme_csv": _RESULTS_DIR / "fuxi_fine_wiki.csv",
-        "merged_csv": _RESULTS_DIR / "fuxi_fine_wiki_mmlu_xcopa_belebele_marc_layer15_merged.csv",
-        "layer":      "layer_15",
+        "merged_csv": _RESULTS_DIR / "fuxi_fine_wiki_mmlu_xcopa_belebele_marc_layer21_merged.csv",
+        "layer":      "layer_21",
         "label":      "FuxiTranyu-8B",
     },
     "fuxi_intermediate": {
@@ -28,8 +28,8 @@ _MODEL_CONFIGS = {
     },
     "apertus": {
         "rankme_csv": _RESULTS_DIR / "apertus_fine_wiki.csv",
-        "merged_csv": _RESULTS_DIR / "apertus_fine_wiki_mmlu_xcopa_belebele_marc_layer21_merged.csv",
-        "layer":      "layer_21",
+        "merged_csv": _RESULTS_DIR / "apertus_fine_wiki_mmlu_xcopa_belebele_marc_layer19_merged.csv",
+        "layer":      "layer_19",
         "label":      "Apertus-8B-2509",
     },
 }
