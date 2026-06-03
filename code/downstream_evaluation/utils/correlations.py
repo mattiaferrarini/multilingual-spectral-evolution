@@ -31,36 +31,30 @@ def _correlate(x, y, min_pairs: int = 4) -> dict | None:
 def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
                                       df_alpha_phases: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute Spearman + Pearson correlations: AlphaReQ post-minimum geometry → downstream accuracy.
+    Compute Spearman + Pearson correlations: AlphaReQ geometry → downstream accuracy.
 
     Predictor sets are restricted by outcome to avoid using post-grokking data:
 
       Grokking onset uses only alpha_first: AlphaReQ at the first checkpoint,
-      at or before grokking onset in every (model, task, language) combination.
-      For Apertus this equals alpha_trough (the first checkpoint IS the minimum).
+      guaranteed to be at or before grokking onset in every (model, task, language)
+      combination.
 
-      Peak accuracy uses all 9 post-minimum predictors (retrospective — no leakage risk).
-      All predictors are computed from the regularization-decreasing phase, which is
-      observable in both models.
+      Peak accuracy uses all 7 predictors (retrospective — no leakage risk).
 
     Computed separately per task across all four benchmarks, never pooled.
     Returns df_alpha_correlations.
     """
     _GROKKING = [
-        ("alpha_first", "AlphaReQ at first ckpt"),
+        ("alpha_first", "AlphaReQ at first checkpoint"),
     ]
     _ALL = [
-        ("alpha_first",                   "AlphaReQ at first ckpt"),
-        ("alpha_ckpt10",                  "AlphaReQ at ckpt 10"),
-        ("alpha_first10_mean",            "Mean AlphaReQ — first 10 ckpts"),
-        ("alpha_trough",                   "AlphaReQ at minimum"),
-        ("alpha_last",                     "AlphaReQ at last ckpt"),
-        ("alpha_postmin_rate",             "Initial AlphaReQ increase rate (1/B)"),
-        ("alpha_postmin_early_mean",       "Mean AlphaReQ — first 25% post-minimum"),
-        ("alpha_postmin_medium_mean",      "Mean AlphaReQ — first 50% post-minimum"),
-        ("alpha_postmin_late_half_mean",   "Mean AlphaReQ — last 50% post-minimum"),
-        ("alpha_postmin_late_mean",        "Mean AlphaReQ — last 25% post-minimum"),
-        ("alpha_postmin_mean",             "Mean AlphaReQ — full post-minimum"),
+        ("alpha_first",        "AlphaReQ at first checkpoint"),
+        ("alpha_ckpt10",       "AlphaReQ at checkpoint 10"),
+        ("alpha_first10_mean", "Mean AlphaReQ — first 10 checkpoints"),
+        ("alpha_q2_mean",      "Mean AlphaReQ — Q2 (25–50%)"),
+        ("alpha_q3_mean",      "Mean AlphaReQ — Q3 (50–75%)"),
+        ("alpha_late_mean",    "Mean AlphaReQ — Q4 (75–100%)"),
+        ("alpha_last",         "AlphaReQ at last checkpoint"),
     ]
     _OUTCOME_PREDICTORS = [
         ("grokking_tokens", "Grokking onset (B)", _GROKKING),
@@ -68,10 +62,7 @@ def compute_alpha_correlations_table(df_grokking: pd.DataFrame,
     ]
 
     _PHASE_COLS = ["language", "alpha_first", "alpha_ckpt10", "alpha_first10_mean",
-                   "alpha_trough", "alpha_last",
-                   "alpha_postmin_rate", "alpha_postmin_early_mean",
-                   "alpha_postmin_medium_mean", "alpha_postmin_late_half_mean",
-                   "alpha_postmin_late_mean", "alpha_postmin_mean"]
+                   "alpha_q2_mean", "alpha_q3_mean", "alpha_late_mean", "alpha_last"]
 
     records = []
     for task in df_grokking["task"].unique():

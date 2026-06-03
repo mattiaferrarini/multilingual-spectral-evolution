@@ -178,7 +178,7 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
 def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
                       langs_sorted, model_label, layer, aggregation, plots_dir,
                       model_key="") -> None:
-    """Per-language AlphaReQ trajectory with regularization phase shading."""
+    """Per-language AlphaReQ trajectory."""
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows), squeeze=False)
@@ -189,14 +189,6 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
         av  = np.array([sub.loc[c, "alpha_req"] if c in sub.index else np.nan
                         for c in checkpoints_all])
         ax.plot(token_counts, av, marker="o", lw=2, color="steelblue", ms=5)
-
-        lang_row = df_alpha_phases[df_alpha_phases["language"] == lang]
-        if not lang_row.empty:
-            for pname, pcolor in ALPHA_PHASE_COLORS.items():
-                p = lang_row.iloc[0]["phases"].get(pname)
-                if p is not None:
-                    ax.axvspan(p[0], p[1], alpha=0.15, color=pcolor)
-
         ax.set_title(lang, fontsize=10, fontweight="bold")
         apply_token_formatter(ax)
         ax.xaxis.label.set_size(8)
@@ -206,12 +198,9 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
     for idx in range(len(langs_sorted), nrows * ncols):
         axes[idx // ncols][idx % ncols].set_visible(False)
 
-    blue_patch   = mpatches.Patch(color="dodgerblue",  alpha=0.5, label="Reg.-increasing (α↓)")
-    purple_patch = mpatches.Patch(color="darkorchid",  alpha=0.5, label="Reg.-decreasing (α↑)")
-    fig.legend(handles=[blue_patch, purple_patch], loc="lower right", fontsize=9)
-    fig.suptitle(f"[{model_label}] AlphaReQ training phases — {layer}, agg={aggregation}",
+    fig.suptitle(f"[{model_label}] AlphaReQ trajectories — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    plt.tight_layout(rect=[0, 0.02, 1, 0.98])
     suffix = f"_{model_key}" if model_key else ""
     path = Path(plots_dir) / f"alpha_phases{suffix}.png"
     plt.savefig(path)
@@ -238,7 +227,7 @@ def show_alpha_phases(model_keys: list, data: dict) -> None:
 def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_languages,
                        random_chance, checkpoints_all, token_counts, langs_sorted,
                        model_label, plots_dir, model_key="") -> None:
-    """Dual-axis AlphaReQ + accuracy overlay per language, with phase shading."""
+    """Dual-axis AlphaReQ + accuracy overlay per language, one figure per task."""
     for task in task_languages:
         df_task = df_eval[df_eval["task"] == task]
         overlap = [l for l in task_languages[task]
@@ -271,13 +260,6 @@ def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_lan
             ax2.set_ylabel("Accuracy", color="crimson", fontsize=8)
             ax2.tick_params(axis="y", colors="crimson")
 
-            lang_row = df_alpha_phases[df_alpha_phases["language"] == lang]
-            if not lang_row.empty:
-                for pname, pcolor in ALPHA_PHASE_COLORS.items():
-                    p = lang_row.iloc[0]["phases"].get(pname)
-                    if p:
-                        ax.axvspan(p[0], p[1], alpha=0.08, color=pcolor)
-
             if not df_grokking.empty:
                 grow = df_grokking[(df_grokking["task"] == task) &
                                    (df_grokking["language"] == lang)]
@@ -292,6 +274,15 @@ def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_lan
 
         for idx in range(len(overlap), nrows * ncols):
             axes[idx // ncols][idx % ncols].set_visible(False)
+
+        # Figure-level legend
+        acc_handle  = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
+                                  marker="s", markersize=6, label="Accuracy")
+        grok_handle = plt.Line2D([0], [0], color="purple", lw=1.5, ls="--",
+                                  label="Grokking onset")
+        fig.legend(handles=[acc_handle, grok_handle],
+                   loc="lower right", fontsize=9, ncol=2,
+                   framealpha=0.9, edgecolor="lightgray")
 
         task_label = task.replace("_", "-").upper()
         fig.suptitle(
@@ -571,24 +562,20 @@ def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
 
 def plot_alpha_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
-    Two-panel heatmap: rows = 11 AlphaReQ predictors,
+    Two-panel heatmap: rows = 7 AlphaReQ predictors,
     columns = 4 outcomes (task × measure).
     Color encodes Spearman ρ; * marks p < 0.05; gray = undefined / not used for outcome.
 
     Required key per model dict: label, df_alpha_correlations, color.
     """
     _SHORT = {
-        "AlphaReQ at first ckpt":                 "AlphaReQ first ckpt",
-        "AlphaReQ at ckpt 10":                    "AlphaReQ ckpt 10",
-        "Mean AlphaReQ — first 10 ckpts":         "Mean first 10 ckpts",
-        "AlphaReQ at minimum":                     "AlphaReQ at minimum",
-        "AlphaReQ at last ckpt":                   "AlphaReQ last ckpt",
-        "Initial AlphaReQ increase rate (1/B)":    "Initial increase rate (1/B)",
-        "Mean AlphaReQ — first 25% post-minimum":  "Mean 0–25% post-min",
-        "Mean AlphaReQ — first 50% post-minimum":  "Mean 0–50% post-min",
-        "Mean AlphaReQ — last 50% post-minimum":   "Mean 50–100% post-min",
-        "Mean AlphaReQ — last 25% post-minimum":   "Mean 75–100% post-min",
-        "Mean AlphaReQ — full post-minimum":        "Mean full post-min",
+        "AlphaReQ at first checkpoint":         "AlphaReQ first checkpoint",
+        "AlphaReQ at checkpoint 10":            "AlphaReQ checkpoint 10",
+        "Mean AlphaReQ — first 10 checkpoints": "Mean first 10 checkpoints",
+        "Mean AlphaReQ — Q2 (25–50%)":          "Mean 25–50% tokens",
+        "Mean AlphaReQ — Q3 (50–75%)":          "Mean 50–75% tokens",
+        "Mean AlphaReQ — Q4 (75–100%)":         "Mean 75–100% tokens",
+        "AlphaReQ at last checkpoint":          "AlphaReQ last checkpoint",
     }
     _PRED_ORDER = list(_SHORT.keys())
     _COLS = [
@@ -658,7 +645,7 @@ def plot_alpha_correlation_heatmap(models_data: list, plots_dir) -> None:
         ax.set_title(md["label"], fontsize=11, pad=10)
 
     fig.suptitle(
-        "Spearman ρ: AlphaReQ post-minimum geometry → downstream performance\n"
+        "Spearman ρ: AlphaReQ geometry → downstream performance\n"
         "* = p < 0.05  |  gray = undefined or predictor not used for outcome",
         fontsize=12, fontweight="bold",
     )
@@ -694,7 +681,7 @@ def show_alpha_correlation_heatmap(model_keys: list, data: dict) -> None:
 
 
 def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> None:
-    """Scatter: AlphaReQ trough position vs peak accuracy — both models overlaid."""
+    """Scatter: AlphaReQ minimum onset vs peak accuracy — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
@@ -746,14 +733,14 @@ def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> Non
                     transform=ax.transAxes, fontsize=12)
 
         ax.xaxis.set_major_formatter(FuncFormatter(format_tokens))
-        ax.set_xlabel("Reg.-decreasing onset (AlphaReQ trough)", fontsize=10)
+        ax.set_xlabel("AlphaReQ minimum onset (B)", fontsize=10)
         ax.set_ylabel("Peak downstream accuracy", fontsize=10)
         ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
                      else task.upper(), fontsize=9)
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle("AlphaReQ trough position → downstream accuracy  [both models]",
+    fig.suptitle("AlphaReQ minimum onset → downstream accuracy  [both models]",
                  fontsize=13, fontweight="bold")
     plt.tight_layout()
     path = Path(plots_dir) / "alpha_correlation_scatter.png"
@@ -866,7 +853,7 @@ def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
 
 
 def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
-    """Scatter: rate of α decline vs grokking onset — both models overlaid."""
+    """Scatter: early AlphaReQ rate of change vs grokking onset — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
@@ -918,7 +905,7 @@ def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
                     transform=ax.transAxes, fontsize=11, color="gray")
 
         ax.yaxis.set_major_formatter(FuncFormatter(format_tokens))
-        ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
+        ax.set_xlabel("Early AlphaReQ rate of change (α/B)", fontsize=10)
         ax.set_ylabel("Grokking onset (B)", fontsize=10)
         ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
                      else task.upper(), fontsize=9)
@@ -926,7 +913,7 @@ def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
             ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle("Rate of α decline → grokking onset  [both models]",
+    fig.suptitle("Early AlphaReQ rate of change → grokking onset  [both models]",
                  fontsize=13, fontweight="bold")
     plt.tight_layout()
     path = Path(plots_dir) / "alpha_rate_scatter.png"
