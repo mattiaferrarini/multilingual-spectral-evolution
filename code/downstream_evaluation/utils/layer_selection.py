@@ -122,13 +122,13 @@ def plot_stratification(models: list[dict], metric: str = "rankme",
         ax.fill_between(lnums, stds, alpha=0.12, color=cfg["color"])
 
         ax.axvline(peak_layer, color=cfg["color"], lw=1.8, ls="--", zorder=2)
-        on_left      = peak_layer < max(lnums) * 0.7
-        x_pts        = 40 if on_left else -40
-        ha           = "left" if on_left else "right"
+        on_left = peak_layer <= max(lnums) * 0.5
+        x_pts   = 15 if on_left else -15
+        ha      = "left" if on_left else "right"
         ax.annotate(
             f"layer {peak_layer}\nstd = {peak_std:.2f}",
             xy=(peak_layer, peak_std),
-            xytext=(x_pts, -30),
+            xytext=(x_pts, -20),
             textcoords="offset points",
             fontsize=9, color=cfg["color"], fontweight="bold",
             ha=ha, va="top",

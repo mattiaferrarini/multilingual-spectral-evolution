@@ -44,9 +44,9 @@ _GROKKING_DISPLAY_COLS = {
     "task":            "task",
     "language":        "language",
     "grokking_tokens": "grokking onset (B)",
-    "peak_tokens":     "peak (B)",
+    "peak_tokens":     "tokens at peak accuracy (B)",
     "peak_accuracy":   "peak accuracy",
-    "random_chance":   "random chance",
+    "random_chance":   "random chance baseline",
 }
 
 

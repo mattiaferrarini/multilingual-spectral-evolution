@@ -102,37 +102,29 @@ def compute_correlations_table(df_grokking: pd.DataFrame,
       (model, task, language) combination, and sufficient — no other predictor
       adds statistically significant signal beyond it for this outcome.
 
-      Peak accuracy uses all 11 predictors (retrospective — no leakage risk).
+      Peak accuracy uses all 7 predictors (retrospective — no leakage risk).
 
     Returns df_correlations.
     """
     _GROKKING = [
-        ("rankme_first", "RankMe at first ckpt"),
+        ("rankme_first", "RankMe at first checkpoint"),
     ]
     _ALL = [
-        ("rankme_first",             "RankMe at first ckpt"),
-        ("rankme_ckpt10",            "RankMe at ckpt 10"),
-        ("rankme_first10_mean",      "Mean RankMe — first 10 ckpts"),
-        ("rankme_valley",            "RankMe at valley"),
-        ("rankme_initial_drop_rate", "Initial RankMe drop rate (1/B)"),
-        ("rankme_last",              "RankMe at last ckpt"),
-        ("rankme_early_mean",        "Mean RankMe — first 25% of tokens"),
-        ("rankme_medium_mean",       "Mean RankMe — first 50% of tokens"),
-        ("rankme_late_half_mean",    "Mean RankMe — last 50% of tokens"),
-        ("rankme_late_mean",         "Mean RankMe — last 25% of tokens"),
-        ("rankme_before_valley",     "Mean RankMe — before valley"),
-        ("rankme_after_valley",      "Mean RankMe — after valley"),
+        ("rankme_first",        "RankMe at first checkpoint"),
+        ("rankme_ckpt10",       "RankMe at checkpoint 10"),
+        ("rankme_first10_mean", "Mean RankMe — first 10 checkpoints"),
+        ("rankme_q2_mean",      "Mean RankMe — Q2 (25–50%)"),
+        ("rankme_q3_mean",      "Mean RankMe — Q3 (50–75%)"),
+        ("rankme_late_mean",    "Mean RankMe — Q4 (75–100%)"),
+        ("rankme_last",         "RankMe at last checkpoint"),
     ]
     _OUTCOME_PREDICTORS = [
         ("grokking_tokens", "Grokking onset (B)", _GROKKING),
         ("peak_accuracy",   "Peak accuracy",      _ALL),
     ]
 
-    phase_cols = ["language", "valley_tokens", "rankme_valley",
-                  "rankme_first", "rankme_ckpt10", "rankme_first10_mean",
-                  "rankme_last", "rankme_initial_drop_rate",
-                  "rankme_early_mean", "rankme_medium_mean", "rankme_late_half_mean",
-                  "rankme_late_mean", "rankme_before_valley", "rankme_after_valley"]
+    phase_cols = ["language", "rankme_first", "rankme_ckpt10", "rankme_first10_mean",
+                  "rankme_q2_mean", "rankme_q3_mean", "rankme_late_mean", "rankme_last"]
     records = []
     for task in df_grokking["task"].unique():
         df_t = df_grokking[df_grokking["task"] == task]

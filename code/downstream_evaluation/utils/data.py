@@ -51,6 +51,7 @@ def load_model_data(model_keys: list, data: dict) -> None:
     """
     for m in model_keys:
         cfg = data[m]["cfg"]
+        print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
         df_rankme, df_layer, checkpoints_all, token_counts, langs_sorted = load_rankme_data(
             cfg["rankme_csv"], cfg["layer"], cfg["aggregation"])
         df_eval, eval_available = load_eval_data(cfg["merged_csv"])
@@ -63,7 +64,6 @@ def load_model_data(model_keys: list, data: dict) -> None:
             "df_eval":         df_eval,
             "eval_available":  eval_available,
         })
-        print()
 
 
 def load_eval_data(merged_csv: Path) -> tuple:

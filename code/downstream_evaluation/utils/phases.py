@@ -89,22 +89,16 @@ def _nanmean_slice(rv: np.ndarray, mask: np.ndarray) -> float:
 
 
 _GEOMETRY_DISPLAY_COLS = {
-    "language":                 "language",
-    "peak_tokens":              "peak (B)",
-    "rankme_peak":              "RankMe peak",
-    "rankme_first":             "RankMe first ckpt",
-    "rankme_ckpt10":            "RankMe ckpt 10",
-    "rankme_first10_mean":      "mean first 10 ckpts",
-    "rankme_valley":            "RankMe valley",
-    "valley_tokens":            "valley (B)",
-    "rankme_initial_drop_rate": "initial drop rate (1/B)",
-    "rankme_last":              "RankMe last ckpt",
-    "rankme_early_mean":        "mean early (0–25%)",
-    "rankme_medium_mean":       "mean medium (0–50%)",
-    "rankme_late_half_mean":    "mean late half (50–100%)",
-    "rankme_late_mean":         "mean late (75–100%)",
-    "rankme_before_valley":     "mean before valley",
-    "rankme_after_valley":      "mean after valley",
+    "language":            "language",
+    "peak_tokens":         "tokens at peak (B)",
+    "rankme_peak":         "RankMe at peak",
+    "rankme_first":        "RankMe first checkpoint",
+    "rankme_ckpt10":       "RankMe checkpoint 10",
+    "rankme_first10_mean": "mean first 10 checkpoints",
+    "rankme_q2_mean":      "mean Q2 (25–50%)",
+    "rankme_q3_mean":      "mean Q3 (50–75%)",
+    "rankme_late_mean":    "mean Q4 (75–100%)",
+    "rankme_last":         "RankMe last checkpoint",
 }
 
 
@@ -137,12 +131,9 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
       rankme_valley            — RankMe at the bottom of the first descent
       valley_tokens            — token count (B) at the valley of the first descent
       rankme_initial_drop_rate — (rankme_first - rankme_valley) / (valley_tokens - first_tokens)
-      rankme_early_mean        — mean RankMe over checkpoints in the first 25% of token range
-      rankme_medium_mean       — mean RankMe over checkpoints in the first 50% of token range
-      rankme_late_half_mean    — mean RankMe over checkpoints in the last 50% of token range
-      rankme_late_mean         — mean RankMe over checkpoints in the last 25% of token range
-      rankme_before_valley     — mean RankMe from the first checkpoint up to and including the valley
-      rankme_after_valley      — mean RankMe from the checkpoint after the valley to the last
+      rankme_q2_mean           — mean RankMe over checkpoints in the second quartile (25–50%)
+      rankme_q3_mean           — mean RankMe over checkpoints in the third quartile (50–75%)
+      rankme_late_mean         — mean RankMe over checkpoints in the fourth quartile (75–100%)
     """
     tc = np.array(token_counts, dtype=float)
     t_max = tc[-1]
@@ -169,10 +160,9 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         else:
             rankme_initial_drop_rate = float("nan")
 
-        rankme_early_mean     = _nanmean_slice(rv, tc <= 0.25 * t_max)
-        rankme_medium_mean    = _nanmean_slice(rv, tc <= 0.50 * t_max)
-        rankme_late_half_mean = _nanmean_slice(rv, tc >= 0.50 * t_max)
-        rankme_late_mean      = _nanmean_slice(rv, tc >= 0.75 * t_max)
+        rankme_q2_mean   = _nanmean_slice(rv, (tc >  0.25 * t_max) & (tc <= 0.50 * t_max))
+        rankme_q3_mean   = _nanmean_slice(rv, (tc >  0.50 * t_max) & (tc <= 0.75 * t_max))
+        rankme_late_mean = _nanmean_slice(rv, tc >= 0.75 * t_max)
         rankme_before_valley  = _nanmean_slice(rv, np.arange(len(tc)) <= valley_idx)
         rankme_after_valley   = _nanmean_slice(rv, np.arange(len(tc)) >  valley_idx)
 
@@ -187,11 +177,8 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
             "rankme_valley":            rankme_valley,
             "valley_tokens":            valley_tokens,
             "rankme_initial_drop_rate": rankme_initial_drop_rate,
-            "rankme_early_mean":        rankme_early_mean,
-            "rankme_medium_mean":       rankme_medium_mean,
-            "rankme_late_half_mean":    rankme_late_half_mean,
-            "rankme_late_mean":         rankme_late_mean,
-            "rankme_before_valley":     rankme_before_valley,
-            "rankme_after_valley":      rankme_after_valley,
+            "rankme_q2_mean":            rankme_q2_mean,
+            "rankme_q3_mean":            rankme_q3_mean,
+            "rankme_late_mean":          rankme_late_mean,
         })
     return pd.DataFrame(records)

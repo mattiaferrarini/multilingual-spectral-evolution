@@ -51,48 +51,19 @@ _COLOR_MIN  = "crimson"
 def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
                        langs_sorted, model_label, layer, aggregation, plots_dir,
                        model_key="", df_geometry=None) -> None:
-    """
-    Per-language RankMe trajectory split into Pre-minimum and Post-minimum phases.
-
-    If df_geometry is provided (contains valley_tokens per language), each
-    trajectory is coloured in two segments separated at the valley, and the
-    minimum point is marked with a star. Otherwise falls back to a single colour.
-    """
+    """Per-language RankMe trajectory."""
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows), squeeze=False)
 
     tc = np.array(token_counts, dtype=float)
-    valley_lookup = (
-        dict(zip(df_geometry["language"], df_geometry["valley_tokens"]))
-        if df_geometry is not None else {}
-    )
 
     for idx, lang in enumerate(langs_sorted):
         ax  = axes[idx // ncols][idx % ncols]
         sub = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
         rv  = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
                         for c in checkpoints_all])
-
-        valley_tok = valley_lookup.get(lang)
-        if valley_tok is not None and not np.isnan(valley_tok):
-            v_idx = int(np.argmin(np.abs(tc - float(valley_tok))))
-
-            # Pre-minimum segment (first checkpoint … valley, inclusive)
-            ax.plot(tc[:v_idx + 1], rv[:v_idx + 1],
-                    marker="o", lw=2, color=_COLOR_PRE, ms=5)
-
-            # Post-minimum segment (valley … last checkpoint, inclusive)
-            if v_idx < len(tc) - 1:
-                ax.plot(tc[v_idx:], rv[v_idx:],
-                        marker="o", lw=2, color=_COLOR_POST, ms=5)
-
-            # Valley marker
-            ax.scatter([tc[v_idx]], [rv[v_idx]],
-                       s=180, color=_COLOR_MIN, marker="*", zorder=5)
-        else:
-            ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
-
+        ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
         ax.set_title(lang, fontsize=10, fontweight="bold")
         apply_token_formatter(ax)
         ax.xaxis.label.set_size(8)
@@ -102,19 +73,9 @@ def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
     for idx in range(len(langs_sorted), nrows * ncols):
         axes[idx // ncols][idx % ncols].set_visible(False)
 
-    # Figure-level legend
-    pre_patch  = mpatches.Patch(color=_COLOR_PRE,  label="Pre-minimum")
-    post_patch = mpatches.Patch(color=_COLOR_POST, label="Post-minimum")
-    min_handle = plt.Line2D([0], [0], marker="*", color="w",
-                             markerfacecolor=_COLOR_MIN, markersize=13,
-                             label="Minimum")
-    fig.legend(handles=[pre_patch, post_patch, min_handle],
-               loc="lower right", fontsize=10, ncol=3,
-               framealpha=0.9, edgecolor="lightgray")
-
     fig.suptitle(f"[{model_label}] RankMe trajectories — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout(rect=[0, 0.04, 1, 0.98])
+    plt.tight_layout(rect=[0, 0.02, 1, 0.98])
     suffix = f"_{model_key}" if model_key else ""
     path = Path(plots_dir) / f"rankme_phases{suffix}.png"
     plt.savefig(path, dpi=120, bbox_inches="tight")
@@ -143,10 +104,6 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
                  model_key="", df_geometry=None) -> None:
     """Dual-axis RankMe + accuracy overlay per language, one figure per task."""
     tc = np.array(token_counts, dtype=float)
-    valley_lookup = (
-        dict(zip(df_geometry["language"], df_geometry["valley_tokens"]))
-        if df_geometry is not None else {}
-    )
 
     for task in task_languages:
         df_task = df_eval[df_eval["task"] == task]
@@ -167,20 +124,7 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
             sub = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
             rv  = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
                             for c in checkpoints_all])
-
-            valley_tok = valley_lookup.get(lang)
-            if valley_tok is not None and not np.isnan(valley_tok):
-                v_idx = int(np.argmin(np.abs(tc - float(valley_tok))))
-                ax.plot(tc[:v_idx + 1], rv[:v_idx + 1],
-                        marker="o", lw=2, color=_COLOR_PRE, ms=5)
-                if v_idx < len(tc) - 1:
-                    ax.plot(tc[v_idx:], rv[v_idx:],
-                            marker="o", lw=2, color=_COLOR_POST, ms=5)
-                ax.scatter([tc[v_idx]], [rv[v_idx]],
-                           s=180, color=_COLOR_MIN, marker="*", zorder=5)
-            else:
-                ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
-
+            ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
             ax.set_ylabel("RankMe", color=_COLOR_PRE, fontsize=8)
             ax.tick_params(axis="y", colors=_COLOR_PRE)
 
@@ -209,16 +153,12 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
             axes[idx // ncols][idx % ncols].set_visible(False)
 
         # Figure-level legend
-        pre_patch    = mpatches.Patch(color=_COLOR_PRE,  label="Pre-minimum (RankMe)")
-        post_patch   = mpatches.Patch(color=_COLOR_POST, label="Post-minimum (RankMe)")
-        min_handle   = plt.Line2D([0], [0], marker="*", color="w",
-                                   markerfacecolor=_COLOR_MIN, markersize=13, label="Minimum")
         acc_handle   = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
                                    marker="s", markersize=6, label="Accuracy")
         grok_handle  = plt.Line2D([0], [0], color="purple", lw=1.5, ls="--",
                                    label="Grokking onset")
-        fig.legend(handles=[pre_patch, post_patch, min_handle, acc_handle, grok_handle],
-                   loc="lower right", fontsize=9, ncol=5,
+        fig.legend(handles=[acc_handle, grok_handle],
+                   loc="lower right", fontsize=9, ncol=2,
                    framealpha=0.9, edgecolor="lightgray")
 
         task_label = task.replace("_", "-").upper()
@@ -531,24 +471,19 @@ def show_predictor_scatter(model_keys: list, data: dict,
 
 def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
     """
-    Two-panel heatmap: rows = 12 RankMe predictors, columns = 4 outcomes (task × measure).
+    Two-panel heatmap: rows = 7 RankMe predictors, columns = 4 outcomes (task × measure).
     Color encodes Spearman ρ; * marks p < 0.05; gray = undefined (zero variance).
 
     Required key per model dict: label, df_correlations, color.
     """
     _SHORT = {
-        "RankMe at first ckpt":              "RankMe first ckpt",
-        "RankMe at ckpt 10":                 "RankMe ckpt 10",
-        "Mean RankMe — first 10 ckpts":      "Mean first 10 ckpts",
-        "RankMe at valley":                  "RankMe at valley",
-        "Initial RankMe drop rate (1/B)":    "Initial drop rate (1/B)",
-        "RankMe at last ckpt":               "RankMe last ckpt",
-        "Mean RankMe — first 25% of tokens": "Mean 0–25%",
-        "Mean RankMe — first 50% of tokens": "Mean 0–50%",
-        "Mean RankMe — last 50% of tokens":  "Mean 50–100%",
-        "Mean RankMe — last 25% of tokens":  "Mean 75–100%",
-        "Mean RankMe — before valley":       "Mean before valley",
-        "Mean RankMe — after valley":        "Mean after valley",
+        "RankMe at first checkpoint":         "RankMe first checkpoint",
+        "RankMe at checkpoint 10":            "RankMe checkpoint 10",
+        "Mean RankMe — first 10 checkpoints": "Mean first 10 checkpoints",
+        "Mean RankMe — Q2 (25–50%)":          "Mean 25–50% tokens",
+        "Mean RankMe — Q3 (50–75%)":          "Mean 50–75% tokens",
+        "Mean RankMe — Q4 (75–100%)":         "Mean 75–100% tokens",
+        "RankMe at last checkpoint":          "RankMe last checkpoint",
     }
     _PRED_ORDER = list(_SHORT.keys())
     _COLS = [

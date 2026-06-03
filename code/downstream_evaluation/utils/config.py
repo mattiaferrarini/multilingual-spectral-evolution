@@ -65,7 +65,7 @@ def load_config(model: str) -> dict:
     with open(_BENCHMARKS_PATH) as f:
         _benchmarks = yaml.safe_load(f)["benchmarks"]
 
-    plots_dir = Path("plots")
+    plots_dir = Path("plots_joao_pinto_407597")
     plots_dir.mkdir(exist_ok=True)
 
     return {
