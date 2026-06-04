@@ -15,18 +15,36 @@ _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA", "belebele": "Belebele", "m
 _TASKS       = ["m_mmlu", "xcopa", "belebele", "m_arc"]
 
 
-def show_overlay_widget(models: list, data: dict) -> None:
+def show_overlay_widget(models: list, data: dict, task_selection: bool = True) -> None:
     """
-    Display an interactive overlay-plot selector.
+    Display overlay plots for RankMe vs. downstream accuracy.
 
     Parameters
     ----------
-    models : list of model keys (e.g. ["fuxi", "apertus"])
-    data   : dict keyed by model key; each value must contain the keys
-             produced by the notebook's data-loading cells:
-             cfg, df_eval, df_layer, df_grokking, checkpoints_all,
-             token_counts, langs_sorted, eval_available, df_geometry.
+    models         : list of model keys (e.g. ["fuxi", "apertus"])
+    data           : dict keyed by model key; each value must contain the keys
+                     produced by the notebook's data-loading cells:
+                     cfg, df_eval, df_layer, df_grokking, checkpoints_all,
+                     token_counts, langs_sorted, eval_available, df_geometry.
+    task_selection : if True (default), show the interactive checkbox UI so the
+                     reader can choose which tasks to plot. If False, directly
+                     render all 4 tasks for all models without any widget UI.
     """
+    if not task_selection:
+        plt.rcParams["figure.edgecolor"] = "white"
+        for m in models:
+            d, cfg = data[m], data[m]["cfg"]
+            if not d["eval_available"]:
+                print(f"[{cfg['model_label']}] No eval data.")
+                continue
+            selected = {t: cfg["task_languages"][t] for t in _TASKS if t in cfg["task_languages"]}
+            plot_overlay(d["df_eval"], d["df_layer"], d["df_grokking"],
+                         selected, cfg["random_chance"],
+                         d["checkpoints_all"], d["token_counts"], d["langs_sorted"],
+                         cfg["model_label"], cfg["plots_dir"], model_key=m,
+                         df_geometry=d.get("df_geometry"))
+        return
+
     checks = {
         m: {
             task: widgets.Checkbox(value=(task == "m_mmlu"),
@@ -107,18 +125,35 @@ def show_overlay_widget(models: list, data: dict) -> None:
     draw()
 
 
-def show_alpha_overlay_widget(models: list, data: dict) -> None:
+def show_alpha_overlay_widget(models: list, data: dict, task_selection: bool = True) -> None:
     """
-    Display an interactive AlphaReQ overlay-plot selector.
+    Display overlay plots for AlphaReQ vs. downstream accuracy.
 
     Parameters
     ----------
-    models : list of model keys (e.g. ["fuxi", "apertus"])
-    data   : dict keyed by model key; each value must contain the keys
-             produced by the notebook's data-loading cells:
-             cfg, df_eval, df_layer, df_alpha_phases, df_grokking,
-             checkpoints_all, token_counts, langs_sorted, eval_available.
+    models         : list of model keys (e.g. ["fuxi", "apertus"])
+    data           : dict keyed by model key; each value must contain the keys
+                     produced by the notebook's data-loading cells:
+                     cfg, df_eval, df_layer, df_alpha_phases, df_grokking,
+                     checkpoints_all, token_counts, langs_sorted, eval_available.
+    task_selection : if True (default), show the interactive checkbox UI so the
+                     reader can choose which tasks to plot. If False, directly
+                     render all 4 tasks for all models without any widget UI.
     """
+    if not task_selection:
+        plt.rcParams["figure.edgecolor"] = "white"
+        for m in models:
+            d, cfg = data[m], data[m]["cfg"]
+            if not d["eval_available"]:
+                print(f"[{cfg['model_label']}] No eval data.")
+                continue
+            selected = {t: cfg["task_languages"][t] for t in _TASKS if t in cfg["task_languages"]}
+            plot_alpha_overlay(d["df_eval"], d["df_layer"], d["df_alpha_phases"],
+                               d["df_grokking"], selected, cfg["random_chance"],
+                               d["checkpoints_all"], d["token_counts"], d["langs_sorted"],
+                               cfg["model_label"], cfg["plots_dir"], model_key=m)
+        return
+
     checks = {
         m: {
             task: widgets.Checkbox(value=(task == "m_mmlu"),
