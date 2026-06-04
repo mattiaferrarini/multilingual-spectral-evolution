@@ -2,7 +2,7 @@
 RankMe geometry metrics from training trajectories.
 
 For each language, identifies the peak token count and computes magnitude-based
-metrics: initial richness, valley of first descent (K=2 robust), final richness,
+metrics: initial richness, valley of first descent, final richness,
 and the initial drop rate.
 
 The main entry point is compute_geometry(), which returns a DataFrame with one
@@ -13,23 +13,39 @@ import numpy as np
 import pandas as pd
 
 
-def _find_first_descent_valley(rv: np.ndarray, tc: np.ndarray) -> tuple:
+def _find_valley(rv: np.ndarray, tc: np.ndarray, peak_idx: int) -> tuple:
     """
-    Find the bottom of the first monotonic descent using K=2 robustness.
+    Find the bottom of the initial compression valley.
 
-    Scans forward from index 0. The valley is the first index i where both
-    rv[i+1] > rv[i] and rv[i+2] > rv[i], meaning two consecutive subsequent
-    values both exceed rv[i]. This tolerates single noisy blips in the descent.
+    Two-phase strategy:
+    1. If the trajectory descends from the first checkpoint to a genuine minimum
+       before the global peak (any pre-peak value is strictly less than rv[0]),
+       use the pre-peak global minimum. This handles models like Apertus whose
+       first checkpoint is already past an unobserved entropy peak, producing a
+       visible U-shaped compression dip before a later global peak.
+    2. Otherwise (first checkpoint is at or below all pre-peak values — e.g. the
+       first checkpoint is itself a pre-entropy low), use the global minimum in
+       the post-peak region. This handles Fuxi (peak at first checkpoint) and
+       Vietnamese (low first checkpoint before a brief entropy rise).
 
     Returns (valley_idx, valley_tokens, valley_rankme).
-    Falls back to the last index if no such point is found (monotonic decline).
     """
-    n = len(rv)
-    for i in range(n - 2):
-        if rv[i + 1] > rv[i] and rv[i + 2] > rv[i]:
-            return i, float(tc[i]), float(rv[i])
-    # Monotonically declining — valley is the last point
-    return n - 1, float(tc[n - 1]), float(rv[n - 1])
+    # Case 1: genuine pre-peak descent
+    if peak_idx > 0:
+        pre_peak = rv[:peak_idx]
+        valid_pre = ~np.isnan(pre_peak)
+        if np.any(valid_pre) and float(np.nanmin(pre_peak)) < float(rv[0]):
+            rel_idx = int(np.nanargmin(pre_peak))
+            return rel_idx, float(tc[rel_idx]), float(rv[rel_idx])
+
+    # Case 2: first checkpoint is at or below all pre-peak values — search post-peak
+    post_rv = rv[peak_idx:]
+    valid_post = ~np.isnan(post_rv)
+    if not np.any(valid_post):
+        return peak_idx, float(tc[peak_idx]), float(rv[peak_idx])
+    rel_idx = int(np.nanargmin(post_rv))
+    abs_idx = peak_idx + rel_idx
+    return abs_idx, float(tc[abs_idx]), float(rv[abs_idx])
 
 
 def _identify_phases_single(rankme_values, token_counts: list) -> dict:
@@ -65,6 +81,45 @@ def _phase_duration(phases: dict, phase_name: str) -> float:
     return float(p[1] - p[0]) if p is not None else float("nan")
 
 
+def _nanmean_slice(rv: np.ndarray, mask: np.ndarray) -> float:
+    """Mean of rv[mask], ignoring NaN. Returns NaN if no valid values."""
+    vals = rv[mask]
+    valid = vals[~np.isnan(vals)]
+    return float(np.mean(valid)) if len(valid) > 0 else float("nan")
+
+
+_GEOMETRY_DISPLAY_COLS = {
+    "language":            "language",
+    "peak_tokens":         "tokens at peak (B)",
+    "rankme_peak":         "RankMe at peak",
+    "rankme_first":        "RankMe first checkpoint",
+    "rankme_ckpt10":       "RankMe checkpoint 10",
+    "rankme_first10_mean": "mean first 10 checkpoints",
+    "rankme_q2_mean":      "mean Q2 (25–50%)",
+    "rankme_q3_mean":      "mean Q3 (50–75%)",
+    "rankme_late_mean":    "mean Q4 (75–100%)",
+    "rankme_last":         "RankMe last checkpoint",
+}
+
+
+def compute_and_show_geometry(model_keys: list, data: dict) -> None:
+    """
+    Compute geometry metrics for every model, store in data[m]["df_geometry"],
+    and print the summary table.
+
+    After this call, data[m] gains the key: df_geometry.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        df_geometry     = compute_geometry(d["df_layer"], d["checkpoints_all"], d["token_counts"])
+        d["df_geometry"] = df_geometry
+        print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
+        print(df_geometry[list(_GEOMETRY_DISPLAY_COLS)]
+              .rename(columns=_GEOMETRY_DISPLAY_COLS)
+              .to_string(index=False))
+
+
 def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
                      token_counts: list) -> pd.DataFrame:
     """
@@ -76,11 +131,12 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
       rankme_valley            — RankMe at the bottom of the first descent
       valley_tokens            — token count (B) at the valley of the first descent
       rankme_initial_drop_rate — (rankme_first - rankme_valley) / (valley_tokens - first_tokens)
-                                 Rate of decline during the initial compression phase,
-                                 common to all languages and models. Uses K=2 valley
-                                 detection to tolerate single noisy blips in the descent.
+      rankme_q2_mean           — mean RankMe over checkpoints in the second quartile (25–50%)
+      rankme_q3_mean           — mean RankMe over checkpoints in the third quartile (50–75%)
+      rankme_late_mean         — mean RankMe over checkpoints in the fourth quartile (75–100%)
     """
     tc = np.array(token_counts, dtype=float)
+    t_max = tc[-1]
 
     records = []
     for lang in sorted(df_layer["dataset"].unique()):
@@ -89,10 +145,14 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
                            for c in checkpoints_all], dtype=float)
         phases = _identify_phases_single(rv, token_counts)
 
-        rankme_first = float(rv[0])  if not np.isnan(rv[0])  else float("nan")
-        rankme_last  = float(rv[-1]) if not np.isnan(rv[-1]) else float("nan")
+        rankme_first = float(rv[0])               if not np.isnan(rv[0])  else float("nan")
+        rankme_last  = float(rv[-1])              if not np.isnan(rv[-1]) else float("nan")
+        rankme_peak  = float(np.nanmax(rv))       if np.any(~np.isnan(rv)) else float("nan")
 
-        valley_idx, valley_tokens, rankme_valley = _find_first_descent_valley(rv, tc)
+        rankme_ckpt10       = float(rv[9]) if len(rv) > 9 and not np.isnan(rv[9]) else float("nan")
+        rankme_first10_mean = _nanmean_slice(rv, np.arange(len(tc)) < 10)
+
+        valley_idx, valley_tokens, rankme_valley = _find_valley(rv, tc, phases["peak_idx"])
         duration_to_valley = valley_tokens - tc[0]
         if (not np.isnan(rankme_first) and not np.isnan(rankme_valley)
                 and duration_to_valley > 0):
@@ -100,13 +160,25 @@ def compute_geometry(df_layer: pd.DataFrame, checkpoints_all: list,
         else:
             rankme_initial_drop_rate = float("nan")
 
+        rankme_q2_mean   = _nanmean_slice(rv, (tc >  0.25 * t_max) & (tc <= 0.50 * t_max))
+        rankme_q3_mean   = _nanmean_slice(rv, (tc >  0.50 * t_max) & (tc <= 0.75 * t_max))
+        rankme_late_mean = _nanmean_slice(rv, tc >= 0.75 * t_max)
+        rankme_before_valley  = _nanmean_slice(rv, np.arange(len(tc)) <= valley_idx)
+        rankme_after_valley   = _nanmean_slice(rv, np.arange(len(tc)) >  valley_idx)
+
         records.append({
             "language":                 lang,
             "peak_tokens":              phases["peak_tokens"],
+            "rankme_peak":              rankme_peak,
             "rankme_first":             rankme_first,
+            "rankme_ckpt10":            rankme_ckpt10,
+            "rankme_first10_mean":      rankme_first10_mean,
             "rankme_last":              rankme_last,
             "rankme_valley":            rankme_valley,
             "valley_tokens":            valley_tokens,
             "rankme_initial_drop_rate": rankme_initial_drop_rate,
+            "rankme_q2_mean":            rankme_q2_mean,
+            "rankme_q3_mean":            rankme_q3_mean,
+            "rankme_late_mean":          rankme_late_mean,
         })
     return pd.DataFrame(records)
