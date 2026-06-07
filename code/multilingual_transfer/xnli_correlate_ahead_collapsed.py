@@ -62,8 +62,8 @@ from xnli_targets import NORMALIZATIONS, find_xnli_files, load_xnli_targets
 PAIRS_COLS = [
     "checkpoint", "perf_checkpoint", "k", "src_lang", "tgt_lang",
     "mean_accuracy", "rankme_src", "rankme_tgt",
-    "abs_diff", "signed_diff", "min_rankme", "norm_asym",
-    "row_norm", "col_norm",
+    *PREDICTORS,
+    *NORMALIZATIONS,
 ]
 
 
