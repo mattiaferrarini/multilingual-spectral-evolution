@@ -61,7 +61,7 @@ from xnli_targets import NORMALIZATIONS, find_xnli_files, load_xnli_targets
 
 PAIRS_COLS = [
     "checkpoint", "perf_checkpoint", "k", "src_lang", "tgt_lang",
-    "mean_accuracy", "rankme_src", "rankme_tgt",
+    "mean_accuracy",
     *PREDICTORS,
     *NORMALIZATIONS,
 ]

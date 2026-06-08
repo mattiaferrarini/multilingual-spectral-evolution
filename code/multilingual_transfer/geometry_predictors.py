@@ -34,7 +34,8 @@ import pandas as pd
 
 from checkpoints import _checkpoint_sort_key
 
-PREDICTORS = ["abs_diff", "signed_diff", "min_rankme", "norm_asym",
+PREDICTORS = ["rankme_src", "rankme_tgt",
+              "abs_diff", "signed_diff", "min_rankme", "norm_asym",
               "abs_ratio", "signed_ratio", "max_rankme", "log_ratio"]
 
 LAW_PHASE1_PARAMS = ["alpha", "A"]
@@ -86,6 +87,8 @@ def select_layers(all_layers, start, end, step):
 
 def get_pred_values(rs, rt, pred_name):
     """Compute a single predictor from (arrays of) RankMe values for src and tgt."""
+    if pred_name == "rankme_src":   return rs
+    if pred_name == "rankme_tgt":   return rt
     if pred_name == "abs_diff":     return np.abs(rs - rt)
     if pred_name == "signed_diff":  return rs - rt
     if pred_name == "min_rankme":   return np.minimum(rs, rt)

@@ -22,6 +22,7 @@ Usage:
 import argparse
 import os
 
+import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
@@ -361,6 +362,164 @@ def _plot_timeseries(corr_df, out_dir, normalizations, k_values, corr_types):
             fig.tight_layout(rect=[0, 0.03, 1, 0.97])
             fig.savefig(os.path.join(out_dir, f"{norm}_k{k}.png"), dpi=150)
             plt.close(fig)
+
+
+_CORR_MAP = {
+    "pearson":  ("pearson_r",  "pearson_p",  "Pearson r"),
+    "spearman": ("spearman_r", "spearman_p", "Spearman ρ"),
+}
+_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
+
+
+def plot_law_timeseries_comparison(
+    config1, analysis_config1,
+    config2, analysis_config2,
+    k=8,
+    normalization="row_norm",
+    formula="abs_diff",
+    corr_type="spearman",
+    predictors=None,
+    save_path=None,
+):
+    """
+    Plot per-checkpoint law-predictor correlation timeseries for two models side by side.
+
+    One subplot per model; x = training tokens, y = correlation coefficient.
+    One line per predictor (base × formula gives the full predictor name).
+
+    Parameters
+    ----------
+    config1, config2 : str | dict
+        Paths to per-model XNLI law config YAMLs (or already-loaded dicts).
+    analysis_config1, analysis_config2 : str | dict
+        Paths to law correlation-analysis config YAMLs (or already-loaded dicts).
+    k : int
+        Number of in-context examples.
+    normalization : {"row_norm", "col_norm"}
+    formula : str
+        Comparison formula suffix, e.g. "abs_diff", "log_ratio", "signed_diff".
+        The full predictor column is ``{base}_{formula}``.
+    corr_type : {"pearson", "spearman"}
+        Which correlation coefficient to plot.
+    predictors : list[str] | None
+        Base parameter names (e.g. ["alpha", "A", "drop_to_min"]).
+        Defaults to all LAW_PARAMS (LAW_PHASE1_PARAMS + LAW_CURVE_PARAMS).
+    save_path : str | None
+        If given, save the figure to this path.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if corr_type not in _CORR_MAP:
+        raise ValueError(f"corr_type must be one of {list(_CORR_MAP)}, got {corr_type!r}")
+    r_col, p_col, corr_label = _CORR_MAP[corr_type]
+
+    if predictors is None:
+        predictors = LAW_PARAMS
+
+    full_pred_names = [f"{p}_{formula}" for p in predictors]
+
+    def _load(cfg):
+        return cfg if isinstance(cfg, dict) else _load_config(cfg)
+
+    def _base_dir(cfg_path):
+        if isinstance(cfg_path, dict):
+            return None
+        d = os.path.dirname(os.path.abspath(cfg_path))
+        while d and d != os.path.dirname(d):
+            if os.path.isdir(os.path.join(d, "code")):
+                return d
+            d = os.path.dirname(d)
+        return None
+
+    def _abs(path, base):
+        if base is None or os.path.isabs(path):
+            return path
+        return os.path.join(base, path)
+
+    cfg1 = _load(config1);  acfg1 = _load(analysis_config1)
+    cfg2 = _load(config2);  acfg2 = _load(analysis_config2)
+
+    base1 = _base_dir(analysis_config1)
+    base2 = _base_dir(analysis_config2)
+
+    model1 = cfg1["model"]["name"].split("/")[-1]
+    model2 = cfg2["model"]["name"].split("/")[-1]
+
+    paths1 = _resolve_paths(acfg1, model1)
+    paths2 = _resolve_paths(acfg2, model2)
+
+    def _prepare(paths, base):
+        df = pd.read_csv(_abs(paths["results_csv"], base))
+        df = df[df["scope"] == "per_ckpt"].copy()
+        df = df[
+            (df["normalization"] == normalization) &
+            (df["k"] == k) &
+            (df["predictor"].isin(full_pred_names))
+        ].copy()
+        df["tokens_B"] = df["checkpoint"].map(_token_count)
+        return df[df["tokens_B"].notna()]
+
+    df1 = _prepare(paths1, base1)
+    df2 = _prepare(paths2, base2)
+
+    pred_colors = plt.cm.tab10.colors[:len(predictors)]
+    pred_marker = {p: _MARKERS[i % len(_MARKERS)] for i, p in enumerate(predictors)}
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+    fig.suptitle(
+        f"{corr_label}  |  {normalization}  |  k={k}  |  formula={formula}",
+        fontsize=11,
+    )
+
+    pred_color = {}
+    for ax, df, model_name in zip(axes, [df1, df2], [model1, model2]):
+        for i, (pred_base, pred_full) in enumerate(zip(predictors, full_pred_names)):
+            color = pred_colors[i]
+            marker = pred_marker[pred_base]
+            s = (
+                df[df["predictor"] == pred_full]
+                .sort_values("tokens_B")
+                .dropna(subset=[r_col])
+            )
+            if s.empty:
+                continue
+            ax.plot(s["tokens_B"], s[r_col], color=color, linewidth=1.4)
+            pred_color.setdefault(pred_base, color)
+            if p_col in s.columns:
+                sig = s[s[p_col] < 0.05]
+                nonsig = s[s[p_col] >= 0.05]
+                ax.scatter(sig["tokens_B"], sig[r_col],
+                           color=color, marker=marker, s=30, zorder=3)
+                ax.scatter(nonsig["tokens_B"], nonsig[r_col],
+                           color=color, marker=marker, s=30, facecolors="none", zorder=3)
+            else:
+                ax.scatter(s["tokens_B"], s[r_col],
+                           color=color, marker=marker, s=30, zorder=3)
+
+        ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
+        ax.set_title(model_name, fontsize=10)
+        ax.set_xlabel("Tokens (B)", fontsize=9)
+
+    axes[0].set_ylabel(corr_label, fontsize=9)
+
+    pred_handles = [
+        mlines.Line2D([], [], color=pred_color[p], marker=pred_marker[p],
+                      linewidth=1.4, markersize=6, label=p)
+        for p in predictors if p in pred_color
+    ]
+    fig.legend(handles=pred_handles, loc="lower center", ncol=len(pred_handles),
+               fontsize=10, frameon=False, bbox_to_anchor=(0.5, -0.08))
+    fig.text(0.5, -0.16, "filled = p < 0.05,  hollow = p ≥ 0.05",
+             ha="center", fontsize=8, color="gray")
+    fig.tight_layout()
+
+    if save_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        fig.savefig(save_path, bbox_inches="tight")
+
+    return fig
 
 
 def main():
