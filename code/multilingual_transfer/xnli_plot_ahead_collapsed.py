@@ -140,7 +140,7 @@ def _plot_lag_summary(corr_df, lag_dir, k_values, t_values, collapse_methods,
                 ax.set_ylabel(label, fontsize=10)
                 ax.set_xticks(t_sorted)
 
-            axes[-1, 0].set_xlabel("T (lag)", fontsize=10)
+            axes[-1, 0].set_xlabel("T (checkpoint lag)", fontsize=10)
 
             pred_handles = [
                 mpatches.Patch(color=pred_colors[i], label=p)
@@ -471,6 +471,9 @@ def plot_timeseries_comparison(
     model1 = cfg1["model"]["name"].split("/")[-1]
     model2 = cfg2["model"]["name"].split("/")[-1]
 
+    step1 = cfg1["model"].get("checkpoint_step") or 1
+    step2 = cfg2["model"].get("checkpoint_step") or 1
+
     paths1 = _resolve_paths(acfg1, model1)
     paths2 = _resolve_paths(acfg2, model2)
 
@@ -494,6 +497,7 @@ def plot_timeseries_comparison(
     t_values = sorted(set(df1["t"].unique()) | set(df2["t"].unique()))
     t_marker = {t: _MARKERS[i % len(_MARKERS)] for i, t in enumerate(t_values)}
     t_color  = {}
+    t_display_label = {}
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
     fig.suptitle(
@@ -501,14 +505,16 @@ def plot_timeseries_comparison(
         fontsize=11,
     )
 
-    for ax, df, model_name in zip(axes, [df1, df2], [model1, model2]):
+    for ax, df, model_name, step in zip(axes, [df1, df2], [model1, model2], [step1, step2]):
         for t in t_values:
             s = df[df["t"] == t].sort_values("tokens_B").dropna(subset=[r_col])
             if s.empty:
                 continue
-            (line,) = ax.plot(s["tokens_B"], s[r_col], linewidth=1.4, label=f"T={t}")
+            t_scaled = t * step
+            (line,) = ax.plot(s["tokens_B"], s[r_col], linewidth=1.4, label=f"T={t_scaled}")
             color = line.get_color()
             t_color.setdefault(t, color)
+            t_display_label.setdefault(t, f"T={t_scaled}")
             marker = t_marker[t]
             sig = s[s[p_col] < 0.05]
             nonsig = s[s[p_col] >= 0.05]
@@ -524,7 +530,7 @@ def plot_timeseries_comparison(
 
     t_handles = [
         mlines.Line2D([], [], color=t_color[t], marker=t_marker[t],
-                      linewidth=1.4, markersize=6, label=f"T={t}")
+                      linewidth=1.4, markersize=6, label=t_display_label[t])
         for t in t_values if t in t_color
     ]
     if t_handles:
@@ -618,6 +624,9 @@ def plot_lag_summary_comparison(
     model1 = cfg1["model"]["name"].split("/")[-1]
     model2 = cfg2["model"]["name"].split("/")[-1]
 
+    step1 = cfg1["model"].get("checkpoint_step") or 1
+    step2 = cfg2["model"].get("checkpoint_step") or 1
+
     paths1 = _resolve_paths(acfg1, model1)
     paths2 = _resolve_paths(acfg2, model2)
 
@@ -636,7 +645,6 @@ def plot_lag_summary_comparison(
     df1 = _prepare(paths1, base1)
     df2 = _prepare(paths2, base2)
 
-    t_values = sorted(set(df1["t"].unique()) | set(df2["t"].unique()))
     k_linestyle  = {kv: METHOD_LINESTYLES[i % len(METHOD_LINESTYLES)] for i, kv in enumerate(k_values)}
     pred_marker  = {p: _MARKERS[i % len(_MARKERS)] for i, p in enumerate(predictors)}
     k_label = {kv: f"k={kv}" for kv in k_values}
@@ -649,7 +657,8 @@ def plot_lag_summary_comparison(
     )
 
     pred_color = {}
-    for ax, df, model_name in zip(axes, [df1, df2], [model1, model2]):
+    for ax, df, model_name, step in zip(axes, [df1, df2], [model1, model2], [step1, step2]):
+        t_values_scaled = sorted(t * step for t in df["t"].unique())
         for pred in predictors:
             for kv in k_values:
                 s = (
@@ -659,22 +668,23 @@ def plot_lag_summary_comparison(
                 )
                 if s.empty:
                     continue
+                t_scaled = s["t"] * step
                 ls = k_linestyle[kv]
                 label = pred if len(k_values) == 1 else f"{pred}  {k_label[kv]}"
-                (line,) = ax.plot(s["t"], s[r_col], linestyle=ls, linewidth=1.4, label=label)
+                (line,) = ax.plot(t_scaled, s[r_col], linestyle=ls, linewidth=1.4, label=label)
                 color = line.get_color()
                 marker = pred_marker[pred]
                 pred_color.setdefault(pred, color)
                 sig = s[s[p_col] < 0.05]
                 nonsig = s[s[p_col] >= 0.05]
-                ax.scatter(sig["t"], sig[r_col], color=color, marker=marker, s=30, zorder=3)
-                ax.scatter(nonsig["t"], nonsig[r_col],
+                ax.scatter(sig["t"] * step, sig[r_col], color=color, marker=marker, s=30, zorder=3)
+                ax.scatter(nonsig["t"] * step, nonsig[r_col],
                            color=color, marker=marker, s=30, facecolors="none", zorder=3)
 
         ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
-        ax.set_xticks(t_values)
+        ax.set_xticks(t_values_scaled)
         ax.set_title(model_name, fontsize=10)
-        ax.set_xlabel("T (lag)", fontsize=9)
+        ax.set_xlabel("T (checkpoint lag)", fontsize=9)
 
     axes[0].set_ylabel(corr_label, fontsize=9)
 
