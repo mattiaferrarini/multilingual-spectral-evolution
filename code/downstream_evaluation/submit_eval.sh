@@ -57,21 +57,12 @@ fi
 case "${MODEL_KEY}" in
     fuxi)
         MODEL_NAME="TJUNLP/FuxiTranyu-8B"
-        RANKME_CSV="/scratch/${REPO_NAME}/results/fuxi.csv"
-        MERGED_CSV="/scratch/${REPO_NAME}/results/fuxi_merged.csv"
-        LAYER="layer_29"
         ;;
     apertus)
         MODEL_NAME="swiss-ai/Apertus-8B-2509"
-        RANKME_CSV="/scratch/${REPO_NAME}/results/apertus.csv"
-        MERGED_CSV="/scratch/${REPO_NAME}/results/apertus_merged.csv"
-        LAYER="layer_31"
         ;;
     *)
         MODEL_NAME="${MODEL_KEY}"
-        RANKME_CSV=""
-        MERGED_CSV=""
-        LAYER=""
         ;;
 esac
 
@@ -109,11 +100,11 @@ fi
 EVAL_COMMAND="\
 cd /scratch/${REPO_NAME} && \
 pip install -r requirements.txt -q && \
-python downstream_evaluation/evaluate.py \
+python code/downstream_evaluation/evaluate.py \
   --model ${MODEL_NAME} \
   --checkpoint ${CHECKPOINT} \
   --output-dir /scratch/${REPO_NAME}/results/eval \
-  --config /scratch/${REPO_NAME}/downstream_evaluation/configs/benchmarks.yaml \
+  --config /scratch/${REPO_NAME}/code/downstream_evaluation/configs/benchmarks.yaml \
   --batch-size 1 \
   ${LIMIT_ARG}"
 

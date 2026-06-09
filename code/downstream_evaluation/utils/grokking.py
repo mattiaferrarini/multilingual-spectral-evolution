@@ -40,6 +40,40 @@ def _peak_acc_info(accuracy_values, token_counts) -> tuple:
     return float(tc[idx]), float(acc[idx])
 
 
+_GROKKING_DISPLAY_COLS = {
+    "task":            "task",
+    "language":        "language",
+    "grokking_tokens": "grokking onset (B)",
+    "peak_tokens":     "tokens at peak accuracy (B)",
+    "peak_accuracy":   "peak accuracy",
+    "random_chance":   "random chance baseline",
+}
+
+
+def compute_and_show_grokking(model_keys: list, data: dict) -> None:
+    """
+    Compute grokking for every model, store in data[m]["df_grokking"], and print the table.
+
+    After this call, data[m] gains the key: df_grokking.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        if d["eval_available"]:
+            df_grokking     = compute_grokking(d["df_eval"], cfg["task_languages"],
+                                               cfg["random_chance"],
+                                               threshold=cfg["grokking_threshold"],
+                                               min_consecutive=cfg["grokking_min_consec"])
+            d["df_grokking"] = df_grokking
+            print(f"\n── {cfg['model_label']} ────────────────────────────────────────")
+            print(df_grokking[list(_GROKKING_DISPLAY_COLS)]
+                  .rename(columns=_GROKKING_DISPLAY_COLS)
+                  .to_string(index=False))
+        else:
+            d["df_grokking"] = pd.DataFrame()
+            print(f"[{m}] No eval data — run submit_eval.sh + merge_results.py first.")
+
+
 def compute_grokking(df_eval: pd.DataFrame, task_languages: dict, random_chance: dict,
                      threshold: float = 0.15, min_consecutive: int = 2) -> pd.DataFrame:
     """

@@ -2,9 +2,9 @@
 """
 Downstream evaluation pipeline using lm-evaluation-harness.
 
-Evaluates one model checkpoint on m-MMLU (5-shot) and XCOPA (0-shot),
-saving one JSON per (task, language) immediately after each evaluation
-to prevent data loss on cluster preemption.
+Evaluates one model checkpoint on all benchmarks defined in configs/benchmarks.yaml
+(m-MMLU 5-shot, XCOPA 0-shot, Belebele 5-shot, M-ARC 5-shot), saving one JSON per
+(task, language) immediately after each evaluation to prevent data loss on cluster preemption.
 
 Resume logic mirrors geometry_analysis/utils.py::load_existing_results:
 scans output_dir at startup, builds the set of already-completed
