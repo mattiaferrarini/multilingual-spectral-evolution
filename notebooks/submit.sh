@@ -49,7 +49,7 @@
 set -euo pipefail
 
 # ============== EDIT THESE LINES ==============
-GASPAR="porpigli"              # <-- For local runs: your EPFL username. TAs may replace this for grading.
+GASPAR="pmazeved"              # <-- For local runs: your EPFL username. TAs may replace this for grading.
 GROUP="g33"                  # <-- REQUIRED FOR SUBMISSION: your team, e.g. g07.
 # ==============================================
 
@@ -86,7 +86,7 @@ SHARED_RW_PVC="course-cs-552-shared-rw"
 
 echo ">>> Submitting ${JOB_NAME}  (1 GPU)"
 
-MSYS_NO_PATHCONV=1 runai submit \
+runai submit \
   --name "${JOB_NAME}" \
   -p "${PROJECT}" \
   --image "${IMAGE}" \
