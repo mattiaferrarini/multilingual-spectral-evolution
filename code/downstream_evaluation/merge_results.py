@@ -6,7 +6,7 @@ Parses all lm-eval JSON outputs produced by evaluate.py and joins them
 with a RankMe CSV (e.g. results/fuxi_wiki.csv) by matching on
 (checkpoint, language).
 
-Output is a single merged CSV ready for the results.ipynb analysis.
+Output is a single merged CSV ready for the joao_pinto_407597.ipynb analysis.
 
 Usage:
     python downstream_evaluation/merge_results.py \\

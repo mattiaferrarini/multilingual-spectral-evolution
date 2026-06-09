@@ -1,9 +1,9 @@
 """
-Configuration loader for results.ipynb.
+Configuration loader for joao_pinto_407597.ipynb.
 
 Centralizes all paths, layer settings, grokking parameters, and benchmark
-metadata derived from benchmarks.yaml. The notebook only needs to set
-MODEL = "fuxi" | "apertus" and call load_config(MODEL) to get everything.
+metadata derived from benchmarks.yaml. The notebook only needs to call
+init_models() to get everything.
 """
 
 from pathlib import Path

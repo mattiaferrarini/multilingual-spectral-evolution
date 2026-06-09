@@ -1,9 +1,9 @@
 """
 RankMe geometry metrics from training trajectories.
 
-For each language, identifies the peak token count and computes magnitude-based
-metrics: initial richness, valley of first descent, final richness,
-and the initial drop rate.
+For each language, computes scalar predictors from the RankMe trajectory:
+values at specific checkpoints (first, checkpoint 10, last) and means over
+training-progress windows (first 10 checkpoints, Q2–Q4).
 
 The main entry point is compute_geometry(), which returns a DataFrame with one
 row per language.

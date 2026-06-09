@@ -1,13 +1,14 @@
 """
-Correlation analysis between compression phase geometry and downstream accuracy.
+Correlation analysis between spectral geometry predictors and downstream accuracy.
 
-Tests whether the onset or duration of the compression-seeking phase predicts
-downstream performance (grokking onset, peak accuracy) using Spearman and
-Pearson correlations. Computed separately for m-MMLU and XCOPA — never pooled.
+Tests whether RankMe and AlphaReQ values at specific checkpoints and training-window
+means predict downstream performance (grokking onset, peak accuracy) using Spearman
+and Pearson correlations. Computed separately per task across all four benchmarks,
+never pooled.
 
-The main entry point is compute_correlations_table(), which returns a tidy
-DataFrame with correlation coefficients and p-values for each predictor-outcome
-pair and task.
+Main entry points:
+  compute_correlations_table()       — RankMe predictors → downstream outcomes
+  compute_alpha_correlations_table() — AlphaReQ predictors → downstream outcomes
 """
 
 import numpy as np
