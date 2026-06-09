@@ -57,21 +57,12 @@ fi
 case "${MODEL_KEY}" in
     fuxi)
         MODEL_NAME="TJUNLP/FuxiTranyu-8B"
-        RANKME_CSV="/scratch/${REPO_NAME}/results/fuxi.csv"
-        MERGED_CSV="/scratch/${REPO_NAME}/results/fuxi_merged.csv"
-        LAYER="layer_29"
         ;;
     apertus)
         MODEL_NAME="swiss-ai/Apertus-8B-2509"
-        RANKME_CSV="/scratch/${REPO_NAME}/results/apertus.csv"
-        MERGED_CSV="/scratch/${REPO_NAME}/results/apertus_merged.csv"
-        LAYER="layer_31"
         ;;
     *)
         MODEL_NAME="${MODEL_KEY}"
-        RANKME_CSV=""
-        MERGED_CSV=""
-        LAYER=""
         ;;
 esac
 
