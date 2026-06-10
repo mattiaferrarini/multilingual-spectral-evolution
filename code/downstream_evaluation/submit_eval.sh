@@ -40,7 +40,7 @@ GROUP="${GROUP:-g33}"
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"
 # ================================================================
 
-REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
+REPO_NAME="${CLUSTER_FOLDER}/open-project-m3-jpmg"
 
 # ── Argument handling ──────────────────────────────────────────────────────────
 CHECKPOINT="${1:-}"

@@ -30,7 +30,7 @@ import yaml
 GASPAR          = "jpazeved"
 PROJECT         = f"course-cs-552-{GASPAR}"
 CLUSTER_FOLDER  = "joao"
-REPO_NAME       = "open-project-m2-jpmg"
+REPO_NAME       = "open-project-m3-jpmg"
 SHELL_JOB       = "temp-shell3"   # specify the name of the job here !!!
 REMOTE_EVAL_DIR = f"/scratch/{CLUSTER_FOLDER}/{REPO_NAME}/results/eval"
 

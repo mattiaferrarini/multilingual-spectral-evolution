@@ -24,7 +24,7 @@ fi
 GASPAR="${GASPAR:-}"                       # Define it in .env
 GROUP="${GROUP:-g33}"                      # Define in .env or default here
 CLUSTER_FOLDER="${CLUSTER_FOLDER:-}"       # Define it in .env
-REPO_NAME="${CLUSTER_FOLDER}/open-project-m2-jpmg"
+REPO_NAME="${CLUSTER_FOLDER}/open-project-m3-jpmg"
 CONFIG_PATH="geometry_analysis/configs/apertus_fine_wiki.yaml"
 # ==============================================
 
