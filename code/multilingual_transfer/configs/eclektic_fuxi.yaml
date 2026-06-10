@@ -1,0 +1,21 @@
+model:
+  name: TJUNLP/FuxiTranyu-8B-DPO
+
+output_dir: code/results/eclektic
+
+languages:
+  de: German
+  en: English
+  es: Spanish
+  fr: French
+  hi: Hindi
+  id: Indonesian
+  it: Italian
+  ja: Japanese
+  zh: Chinese
+
+geometry:
+  csv: code/results/fuxi_fine_wiki.csv
+
+plotting:
+  output_dir: plots/eclektic/FuxiTranyu-8B-DPO

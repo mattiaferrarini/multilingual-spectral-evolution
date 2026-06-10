@@ -1,0 +1,41 @@
+models:
+  - swiss-ai/Apertus-8B-Instruct-2509
+  - TJUNLP/FuxiTranyu-8B-DPO
+
+data_path: multilingual_transfer/datasets/eclektic_main.jsonl
+
+# Number of unique questions to evaluate (each appears in N languages). Omit or set to null for all.
+max_questions: null
+
+eval_models:
+  - zai-org/GLM-4.7-Flash
+  - meta-llama/Llama-3.3-70B-Instruct
+  - gpt-5-mini
+
+output_dir: code/results/eclektic
+
+judge_concurrency: 50
+judge_checkpoint_every: 100
+
+# Evaluation methods to run (any combination of: llm, string)
+eval_method:
+  - llm
+  - string
+
+generation:
+  temperature: 0.7
+  n_generations: 1  # set > 1 to estimate std across independent samples
+  max_tokens: 512
+  seed: 42
+  hf_batch_size: 8  # only used when vLLM is unavailable; reduce if OOM
+
+languages:
+  de: German
+  en: English
+  es: Spanish
+  fr: French
+  hi: Hindi
+  id: Indonesian
+  it: Italian
+  ja: Japanese
+  zh: Chinese
