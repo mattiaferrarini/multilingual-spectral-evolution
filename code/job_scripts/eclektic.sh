@@ -29,7 +29,7 @@ CONFIG_PATH="code/multilingual_transfer/configs/eclektic.yaml"
 # ==============================================
 
 # Edit this for your project. Keep outputs/checkpoints under /scratch.
-TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && pip install -e ./code/vllm_fuxitranyu && python code/multilingual_transfer/eclektic_generate.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
+TRAIN_COMMAND="cd /scratch/${REPO_NAME} && pip install -r requirements.txt && pip install -e ./code/vllm_fuxitranyu && python code/multilingual_transfer/eclektic_generate.py --config /scratch/${REPO_NAME}/${CONFIG_PATH} && python code/multilingual_transfer/eclektic_score.py --config /scratch/${REPO_NAME}/${CONFIG_PATH}"
 
 if [[ -z "${GASPAR}" ]]; then
     echo "ERROR: GASPAR environment variable is not set. Please define it in the .env file." >&2

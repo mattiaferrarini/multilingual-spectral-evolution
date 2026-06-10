@@ -6,11 +6,6 @@ CONFIGS=$SCRIPTS/configs
 
 for model in xnli_apertus.yaml xnli_fuxi.yaml; do
 
-    # echo "=== ahead: $model ==="
-    # python $SCRIPTS/xnli_correlate_ahead.py \
-    #     --config "$CONFIGS/$model" \
-    #     --analysis-config "$CONFIGS/xnli_correlation_ahead_analysis.yaml"
-
     echo "=== ahead collapsed: $model ==="
     python $SCRIPTS/xnli_correlate_ahead_collapsed.py \
         --config "$CONFIGS/$model" \
