@@ -52,10 +52,10 @@ SUFFIX_SHORT = {
 PARAM_SHORT = {
     "alpha":               "α",
     "A":                   "A",
-    "drop_to_min":         "drop",
-    "recovery":            "rec",
-    "drop_minus_recovery": "d-r",
-    "drop_over_recovery":  "d/r",
+    "drop_to_min":         "drop_to_min",
+    "recovery":            "recovery",
+    "drop_minus_recovery": "drop_minus_recovery",
+    "drop_over_recovery":  "drop_over_recovery",
 }
 
 # One colour per param family
@@ -467,10 +467,12 @@ def plot_law_timeseries_comparison(
     pred_colors = plt.cm.tab10.colors[:len(predictors)]
     pred_marker = {p: _MARKERS[i % len(_MARKERS)] for i, p in enumerate(predictors)}
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
-    fig.suptitle(
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
+    fig.suptitle("Law Predictor–XNLI Performance Correlation over Training", fontsize=13, fontweight="bold", y=1.02)
+    fig.text(
+        0.5, 0.96,
         f"{corr_label}  |  {normalization}  |  k={k}  |  formula={formula}",
-        fontsize=11,
+        ha="center", fontsize=10, color="dimgray", va="top",
     )
 
     pred_color = {}
@@ -506,18 +508,19 @@ def plot_law_timeseries_comparison(
 
     pred_handles = [
         mlines.Line2D([], [], color=pred_color[p], marker=pred_marker[p],
-                      linewidth=1.4, markersize=6, label=p)
+                      linewidth=1.4, markersize=6, label=PARAM_SHORT.get(p, p))
         for p in predictors if p in pred_color
     ]
     fig.legend(handles=pred_handles, loc="lower center", ncol=len(pred_handles),
-               fontsize=10, frameon=False, bbox_to_anchor=(0.5, -0.08))
-    fig.text(0.5, -0.16, "filled = p < 0.05,  hollow = p ≥ 0.05",
+               fontsize=9, frameon=False, bbox_to_anchor=(0.5, -0.08))
+    fig.text(0.5, -0.12, "filled = p < 0.05,  hollow = p ≥ 0.05",
              ha="center", fontsize=8, color="gray")
     fig.tight_layout()
 
     if save_path is not None:
         os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-        fig.savefig(save_path, bbox_inches="tight")
+        fmt = os.path.splitext(save_path)[1].lstrip(".")
+        fig.savefig(save_path, format=fmt or None, bbox_inches="tight")
 
     return fig
 

@@ -31,7 +31,7 @@ import seaborn as sns
 import yaml
 
 from checkpoints import _checkpoint_sort_key
-from geometry_predictors import PREDICTORS
+from geometry_predictors import PREDICTORS, PREDICTOR_LABELS
 NORMALIZATIONS = ["row_norm", "col_norm"]
 
 CORR_TYPES = [
@@ -110,7 +110,7 @@ def _plot_lag_summary(corr_df, lag_dir, k_values, t_values, collapse_methods,
                 fontsize=12,
             )
 
-            for row_idx, (r_col, p_col, label) in enumerate(corr_types):
+            for row_idx, (r_col, _, label) in enumerate(corr_types):
                 ax = axes[row_idx, 0]
 
                 for pred_idx, pred in enumerate(predictors):
@@ -126,13 +126,7 @@ def _plot_lag_summary(corr_df, lag_dir, k_values, t_values, collapse_methods,
                             continue
                         ls = method_ls[method]
                         ax.plot(s["t"], s[r_col], color=color, linestyle=ls, linewidth=1.4)
-                        sig = s[s[p_col] < 0.05]
-                        nonsig = s[s[p_col] >= 0.05]
-                        ax.scatter(sig["t"], sig[r_col], color=color, s=30, zorder=3)
-                        ax.scatter(
-                            nonsig["t"], nonsig[r_col],
-                            color=color, s=30, facecolors="none", zorder=3,
-                        )
+                        ax.scatter(s["t"], s[r_col], color=color, s=30, zorder=3)
 
                 ymin, ymax = ax.get_ylim()
                 ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
@@ -143,7 +137,7 @@ def _plot_lag_summary(corr_df, lag_dir, k_values, t_values, collapse_methods,
             axes[-1, 0].set_xlabel("T (checkpoint lag)", fontsize=10)
 
             pred_handles = [
-                mpatches.Patch(color=pred_colors[i], label=p)
+                mpatches.Patch(color=pred_colors[i], label=PREDICTOR_LABELS.get(p, p))
                 for i, p in enumerate(predictors)
             ]
             method_handles = [
@@ -247,7 +241,7 @@ def _plot_timeseries(corr_df, timeseries_dir, k_values, t_values, collapse_metho
 
             legend_ax = axes[0, -1]
             pred_handles = [
-                mpatches.Patch(color=pred_colors[i], label=pred)
+                mpatches.Patch(color=pred_colors[i], label=PREDICTOR_LABELS.get(pred, pred))
                 for i, pred in enumerate(predictors)
             ]
             t_handles = [
@@ -372,7 +366,7 @@ def _plot_bar_summary(corr_df, bar_dir, k_values, t_values, collapse_methods,
                         )
 
             pred_handles = [
-                mpatches.Patch(color=pred_colors[i], label=pred)
+                mpatches.Patch(color=pred_colors[i], label=PREDICTOR_LABELS.get(pred, pred))
                 for i, pred in enumerate(predictors)
             ]
             sig_handles = [
@@ -499,10 +493,12 @@ def plot_timeseries_comparison(
     t_color  = {}
     t_display_label = {}
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
-    fig.suptitle(
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
+    fig.suptitle("RankMe–XNLI Performance Correlation over Training", fontsize=13, fontweight="bold", y=1.02)
+    fig.text(
+        0.5, 0.96,
         f"{corr_label}  |  {predictor}  |  {normalization}  |  k={k}  |  {collapse_method}",
-        fontsize=11,
+        ha="center", fontsize=10, color="dimgray", va="top",
     )
 
     for ax, df, model_name, step in zip(axes, [df1, df2], [model1, model2], [step1, step2]):
@@ -534,9 +530,9 @@ def plot_timeseries_comparison(
         for t in t_values if t in t_color
     ]
     if t_handles:
-        fig.legend(handles=t_handles, loc="lower center", ncol=len(t_handles),
-                   fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.08))
-    fig.text(0.5, -0.18, "filled = p < 0.05,  hollow = p ≥ 0.05",
+        fig.legend(handles=t_handles, loc="lower center", ncol=min(5, len(t_handles)),
+                   fontsize=9, frameon=False, bbox_to_anchor=(0.5, -0.08))
+    fig.text(0.5, -0.12, "filled = p < 0.05,  hollow = p ≥ 0.05",
              ha="center", fontsize=8, color="gray")
     fig.tight_layout()
 
@@ -591,7 +587,7 @@ def plot_lag_summary_comparison(
 
     if corr_type not in _CORR_TYPE_MAP:
         raise ValueError(f"corr_type must be one of {list(_CORR_TYPE_MAP)}, got {corr_type!r}")
-    r_col, p_col, corr_label = _CORR_TYPE_MAP[corr_type]
+    r_col, _, corr_label = _CORR_TYPE_MAP[corr_type]
 
     if predictors is None:
         predictors = PREDICTORS
@@ -649,11 +645,13 @@ def plot_lag_summary_comparison(
     pred_marker  = {p: _MARKERS[i % len(_MARKERS)] for i, p in enumerate(predictors)}
     k_label = {kv: f"k={kv}" for kv in k_values}
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(8, 3.5), sharey=True)
     k_str = str(k_values[0]) if len(k_values) == 1 else ", ".join(str(kv) for kv in k_values)
-    fig.suptitle(
+    fig.suptitle("RankMe–XNLI Performance Correlation vs Checkpoint Lag", fontsize=13, fontweight="bold", y=1.02)
+    fig.text(
+        0.5, 0.96,
         f"{corr_label}  |  {normalization}  |  k={k_str}  |  {collapse_method}",
-        fontsize=11,
+        ha="center", fontsize=10, color="dimgray", va="top",
     )
 
     pred_color = {}
@@ -670,16 +668,13 @@ def plot_lag_summary_comparison(
                     continue
                 t_scaled = s["t"] * step
                 ls = k_linestyle[kv]
-                label = pred if len(k_values) == 1 else f"{pred}  {k_label[kv]}"
+                pred_lbl = PREDICTOR_LABELS.get(pred, pred)
+                label = pred_lbl if len(k_values) == 1 else f"{pred_lbl}  {k_label[kv]}"
                 (line,) = ax.plot(t_scaled, s[r_col], linestyle=ls, linewidth=1.4, label=label)
                 color = line.get_color()
                 marker = pred_marker[pred]
                 pred_color.setdefault(pred, color)
-                sig = s[s[p_col] < 0.05]
-                nonsig = s[s[p_col] >= 0.05]
-                ax.scatter(sig["t"] * step, sig[r_col], color=color, marker=marker, s=30, zorder=3)
-                ax.scatter(nonsig["t"] * step, nonsig[r_col],
-                           color=color, marker=marker, s=30, facecolors="none", zorder=3)
+                ax.scatter(s["t"] * step, s[r_col], color=color, marker=marker, s=30, zorder=3)
 
         ax.axhline(0, color="gray", linewidth=0.8, linestyle="--")
         ax.set_xticks(t_values_scaled)
@@ -691,7 +686,7 @@ def plot_lag_summary_comparison(
 
     pred_handles = [
         mlines.Line2D([], [], color=pred_color[p], marker=pred_marker[p],
-                      linewidth=1.4, markersize=6, label=p)
+                      linewidth=1.4, markersize=6, label=PREDICTOR_LABELS.get(p, p))
         for p in predictors if p in pred_color
     ]
     k_handles = [
@@ -699,12 +694,11 @@ def plot_lag_summary_comparison(
                       linewidth=1.2, label=k_label[kv])
         for kv in k_values
     ] if len(k_values) > 1 else []
-    n_legend_cols = len(pred_handles) + len(k_handles)
+    n_legend_cols = min(5, len(pred_handles) + len(k_handles))
     fig.legend(handles=pred_handles + k_handles, loc="lower center", ncol=n_legend_cols,
-               fontsize=11, frameon=False, bbox_to_anchor=(0.5, -0.08))
+               fontsize=9, frameon=False, bbox_to_anchor=(0.5, -0.08))
 
-    fig.text(0.5, -0.18, "filled = p < 0.05,  hollow = p ≥ 0.05",
-             ha="center", fontsize=8, color="gray")
+    # fig.text(0.5, -0.12, "filled = p < 0.05,  hollow = p ≥ 0.05", ha="center", fontsize=8, color="gray")
     fig.tight_layout()
 
     if save_path is not None:

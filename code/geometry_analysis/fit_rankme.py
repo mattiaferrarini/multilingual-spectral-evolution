@@ -441,6 +441,10 @@ def fit_rankme_from_df(
     t_scale: float = T_SCALE,
     output_path: str | None = None,
 ) -> pd.DataFrame:
+    if output_path is not None and os.path.exists(output_path):
+        print(f"Loading cached results from {output_path}")
+        return pd.read_csv(output_path)
+
     work = df.copy()
     work["t"] = work["checkpoint"].apply(parse_checkpoint)
     work = work.dropna(subset=["t", metric])
@@ -555,7 +559,7 @@ def plot_fitted_laws(
     t_pad_start = 0.0
     t_pad_end = t_max_all + padding
 
-    ncols = min(4, len(languages))
+    ncols = min(5, len(languages))
     nrows = (len(languages) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3.5 * nrows), squeeze=False)
 
@@ -631,7 +635,8 @@ def plot_fitted_laws(
 
     if output_path:
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        fmt = os.path.splitext(output_path)[1].lstrip(".")
+        plt.savefig(output_path, format=fmt, bbox_inches="tight")
         print(f"Plot saved → {output_path}")
     else:
         plt.show()

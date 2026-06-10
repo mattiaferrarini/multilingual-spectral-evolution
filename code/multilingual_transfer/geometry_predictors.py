@@ -38,6 +38,19 @@ PREDICTORS = ["rankme_src", "rankme_tgt",
               "abs_diff", "signed_diff", "min_rankme", "norm_asym",
               "abs_ratio", "signed_ratio", "max_rankme", "log_ratio"]
 
+PREDICTOR_LABELS = {
+    "rankme_src":   "src",
+    "rankme_tgt":   "tgt",
+    "abs_diff":     "|src − tgt|",
+    "signed_diff":  "src − tgt",
+    "min_rankme":   "min(src, tgt)",
+    "norm_asym":    "(src − tgt) / (src + tgt)",
+    "abs_ratio":    "max(src, tgt) / min(src, tgt)",
+    "signed_ratio": "src / tgt",
+    "max_rankme":   "max(src, tgt)",
+    "log_ratio":    "log(src / tgt)",
+}
+
 LAW_PHASE1_PARAMS = ["alpha", "A"]
 
 LAW_CURVE_PARAMS = [
