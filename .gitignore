@@ -7,8 +7,10 @@ description.md
 # Large result files (exceed GitHub's 100MB limit)
 code/results/xnli_correlations_ahead/**/pairs.csv
 code/results/eclektic_correlations/**/pairs.csv
+code/results/xnli/*_generations.jsonl
 CLAUDE.md
 plots/
+report_plots/
 data/
 nohup.out
 *.egg-info
