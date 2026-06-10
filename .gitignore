@@ -14,6 +14,9 @@ report_plots/
 data/
 nohup.out
 *.egg-info
+overleaf/
+notebooks/report_*.ipynb
+notebooks/plots_*/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

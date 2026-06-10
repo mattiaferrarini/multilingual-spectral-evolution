@@ -43,20 +43,27 @@ _MODEL_PALETTE = [
 
 # ── Per-model plots ────────────────────────────────────────────────────────────
 
+_COLOR_PRE  = "steelblue"
+_COLOR_POST = "seagreen"
+_COLOR_MIN  = "crimson"
+
+
 def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
                        langs_sorted, model_label, layer, aggregation, plots_dir,
-                       model_key="") -> None:
-    """Per-language RankMe trajectory across training checkpoints."""
+                       model_key="", df_geometry=None) -> None:
+    """Per-language RankMe trajectory."""
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows), squeeze=False)
+
+    tc = np.array(token_counts, dtype=float)
 
     for idx, lang in enumerate(langs_sorted):
         ax  = axes[idx // ncols][idx % ncols]
         sub = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
         rv  = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
                         for c in checkpoints_all])
-        ax.plot(token_counts, rv, marker="o", lw=2, color="steelblue", ms=5)
+        ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
         ax.set_title(lang, fontsize=10, fontweight="bold")
         apply_token_formatter(ax)
         ax.xaxis.label.set_size(8)
@@ -68,19 +75,37 @@ def plot_rankme_phases(df_layer, checkpoints_all, token_counts,
 
     fig.suptitle(f"[{model_label}] RankMe trajectories — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.02, 1, 0.98])
     suffix = f"_{model_key}" if model_key else ""
     path = Path(plots_dir) / f"rankme_phases{suffix}.png"
-    plt.savefig(path)
+    plt.savefig(path, dpi=120, bbox_inches="tight")
     plt.show()
     print(f"Saved: {path}")
 
 
+def show_rankme_phases(model_keys: list, data: dict) -> None:
+    """
+    Call plot_rankme_phases for every model using the data-dict convention.
+
+    data[m] must contain: df_layer, checkpoints_all, token_counts, langs_sorted,
+    cfg (with model_label, layer, aggregation, plots_dir), and optionally df_geometry.
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        plot_rankme_phases(d["df_layer"], d["checkpoints_all"], d["token_counts"],
+                           d["langs_sorted"], cfg["model_label"], cfg["layer"],
+                           cfg["aggregation"], cfg["plots_dir"],
+                           model_key=m, df_geometry=d.get("df_geometry"))
+
+
 def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
                  checkpoints_all, token_counts, langs_sorted, model_label, plots_dir,
-                 model_key="") -> None:
-    """Dual-axis RankMe + accuracy overlay per language."""
-    for task in ["m_mmlu", "xcopa"]:
+                 model_key="", df_geometry=None) -> None:
+    """Dual-axis RankMe + accuracy overlay per language, one figure per task."""
+    tc = np.array(token_counts, dtype=float)
+
+    for task in task_languages:
         df_task = df_eval[df_eval["task"] == task]
         overlap = [l for l in task_languages[task]
                    if l in langs_sorted and l in df_task["language"].unique()]
@@ -99,9 +124,9 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
             sub = df_layer[df_layer["dataset"] == lang].set_index("checkpoint")
             rv  = np.array([sub.loc[c, "rankme"] if c in sub.index else np.nan
                             for c in checkpoints_all])
-            ax.plot(token_counts, rv, marker="o", lw=2, color="steelblue", ms=5)
-            ax.set_ylabel("RankMe", color="steelblue", fontsize=8)
-            ax.tick_params(axis="y", colors="steelblue")
+            ax.plot(tc, rv, marker="o", lw=2, color=_COLOR_PRE, ms=5)
+            ax.set_ylabel("RankMe", color=_COLOR_PRE, fontsize=8)
+            ax.tick_params(axis="y", colors=_COLOR_PRE)
 
             sub_e = df_task[df_task["language"] == lang].sort_values(
                 "checkpoint", key=lambda s: s.map(ckpt_to_tokens))
@@ -127,12 +152,25 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
         for idx in range(len(overlap), nrows * ncols):
             axes[idx // ncols][idx % ncols].set_visible(False)
 
-        fig.suptitle(f"[{model_label}] RankMe vs {task.upper()} accuracy",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout()
+        # Figure-level legend
+        acc_handle   = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
+                                   marker="s", markersize=6, label="Accuracy")
+        grok_handle  = plt.Line2D([0], [0], color="purple", lw=1.5, ls="--",
+                                   label="Grokking onset")
+        fig.legend(handles=[acc_handle, grok_handle],
+                   loc="lower right", fontsize=9, ncol=2,
+                   framealpha=0.9, edgecolor="lightgray")
+
+        task_label = task.replace("_", "-").upper()
+        fig.suptitle(
+            f"{model_label}  —  {task_label}\n"
+            "RankMe trajectory vs. accuracy per language",
+            fontsize=13, fontweight="bold",
+        )
+        plt.tight_layout(rect=[0, 0.04, 1, 0.96])
         suffix = f"_{model_key}" if model_key else ""
         path = Path(plots_dir) / f"overlay_{task}{suffix}.png"
-        plt.savefig(path)
+        plt.savefig(path, dpi=120, bbox_inches="tight")
         plt.show()
         print(f"Saved: {path}")
 
@@ -140,7 +178,7 @@ def plot_overlay(df_eval, df_layer, df_grokking, task_languages, random_chance,
 def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
                       langs_sorted, model_label, layer, aggregation, plots_dir,
                       model_key="") -> None:
-    """Per-language AlphaReQ trajectory with regularization phase shading."""
+    """Per-language AlphaReQ trajectory."""
     ncols = 3
     nrows = -(-len(langs_sorted) // ncols)
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows), squeeze=False)
@@ -151,14 +189,6 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
         av  = np.array([sub.loc[c, "alpha_req"] if c in sub.index else np.nan
                         for c in checkpoints_all])
         ax.plot(token_counts, av, marker="o", lw=2, color="steelblue", ms=5)
-
-        lang_row = df_alpha_phases[df_alpha_phases["language"] == lang]
-        if not lang_row.empty:
-            for pname, pcolor in ALPHA_PHASE_COLORS.items():
-                p = lang_row.iloc[0]["phases"].get(pname)
-                if p is not None:
-                    ax.axvspan(p[0], p[1], alpha=0.15, color=pcolor)
-
         ax.set_title(lang, fontsize=10, fontweight="bold")
         apply_token_formatter(ax)
         ax.xaxis.label.set_size(8)
@@ -168,12 +198,9 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
     for idx in range(len(langs_sorted), nrows * ncols):
         axes[idx // ncols][idx % ncols].set_visible(False)
 
-    blue_patch   = mpatches.Patch(color="dodgerblue",  alpha=0.5, label="Reg.-increasing (α↓)")
-    purple_patch = mpatches.Patch(color="darkorchid",  alpha=0.5, label="Reg.-decreasing (α↑)")
-    fig.legend(handles=[blue_patch, purple_patch], loc="lower right", fontsize=9)
-    fig.suptitle(f"[{model_label}] AlphaReQ training phases — {layer}, agg={aggregation}",
+    fig.suptitle(f"[{model_label}] AlphaReQ trajectories — {layer}, agg={aggregation}",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    plt.tight_layout(rect=[0, 0.02, 1, 0.98])
     suffix = f"_{model_key}" if model_key else ""
     path = Path(plots_dir) / f"alpha_phases{suffix}.png"
     plt.savefig(path)
@@ -181,11 +208,27 @@ def plot_alpha_phases(df_layer, df_alpha_phases, checkpoints_all, token_counts,
     print(f"Saved: {path}")
 
 
+def show_alpha_phases(model_keys: list, data: dict) -> None:
+    """
+    Call plot_alpha_phases for every model using the data-dict convention.
+
+    data[m] must contain: df_layer, df_alpha_phases, checkpoints_all, token_counts,
+    langs_sorted, cfg (with model_label, layer, aggregation, plots_dir).
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        plot_alpha_phases(d["df_layer"], d["df_alpha_phases"], d["checkpoints_all"],
+                          d["token_counts"], d["langs_sorted"], cfg["model_label"],
+                          cfg["layer"], cfg["aggregation"], cfg["plots_dir"],
+                          model_key=m)
+
+
 def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_languages,
                        random_chance, checkpoints_all, token_counts, langs_sorted,
                        model_label, plots_dir, model_key="") -> None:
-    """Dual-axis AlphaReQ + accuracy overlay per language, with phase shading."""
-    for task in ["m_mmlu", "xcopa"]:
+    """Dual-axis AlphaReQ + accuracy overlay per language, one figure per task."""
+    for task in task_languages:
         df_task = df_eval[df_eval["task"] == task]
         overlap = [l for l in task_languages[task]
                    if l in langs_sorted and l in df_task["language"].unique()]
@@ -217,13 +260,6 @@ def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_lan
             ax2.set_ylabel("Accuracy", color="crimson", fontsize=8)
             ax2.tick_params(axis="y", colors="crimson")
 
-            lang_row = df_alpha_phases[df_alpha_phases["language"] == lang]
-            if not lang_row.empty:
-                for pname, pcolor in ALPHA_PHASE_COLORS.items():
-                    p = lang_row.iloc[0]["phases"].get(pname)
-                    if p:
-                        ax.axvspan(p[0], p[1], alpha=0.08, color=pcolor)
-
             if not df_grokking.empty:
                 grow = df_grokking[(df_grokking["task"] == task) &
                                    (df_grokking["language"] == lang)]
@@ -239,9 +275,22 @@ def plot_alpha_overlay(df_eval, df_layer, df_alpha_phases, df_grokking, task_lan
         for idx in range(len(overlap), nrows * ncols):
             axes[idx // ncols][idx % ncols].set_visible(False)
 
-        fig.suptitle(f"[{model_label}] AlphaReQ vs {task.upper()} accuracy",
-                     fontsize=13, fontweight="bold")
-        plt.tight_layout()
+        # Figure-level legend
+        acc_handle  = plt.Line2D([0], [0], color="crimson", lw=2, ls="--",
+                                  marker="s", markersize=6, label="Accuracy")
+        grok_handle = plt.Line2D([0], [0], color="purple", lw=1.5, ls="--",
+                                  label="Grokking onset")
+        fig.legend(handles=[acc_handle, grok_handle],
+                   loc="lower right", fontsize=9, ncol=2,
+                   framealpha=0.9, edgecolor="lightgray")
+
+        task_label = task.replace("_", "-").upper()
+        fig.suptitle(
+            f"{model_label}  —  {task_label}\n"
+            "AlphaReQ trajectory vs. accuracy per language",
+            fontsize=13, fontweight="bold",
+        )
+        plt.tight_layout(rect=[0, 0.04, 1, 0.96])
         suffix = f"_{model_key}" if model_key else ""
         path = Path(plots_dir) / f"alpha_overlay_{task}{suffix}.png"
         plt.savefig(path)
@@ -274,20 +323,33 @@ def _regression_label(valid, x_col, y_col):
         return None, None, f"n={len(valid)}"
 
 
-def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_dir) -> None:
+def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_dir,
+                           outcomes: list | None = None) -> None:
     """
-    Scatter: one RankMe predictor vs all outcomes × both tasks — both models overlaid.
+    Scatter: one RankMe predictor vs selected outcomes × all tasks — both models overlaid.
 
-    Layout: 2 rows (M-MMLU / XCOPA) × 2 columns (Grokking onset / Peak accuracy).
-    Call once per predictor for four focused, readable figures.
+    outcomes: list of (y_col, y_label) pairs to plot. Defaults to both grokking onset
+              and peak accuracy. Pass a restricted list to exclude outcomes that are not
+              methodologically valid for this predictor (e.g. exclude grokking onset for
+              predictors that may use post-grokking data).
     """
-    tasks    = [("m_mmlu", "M-MMLU"), ("xcopa", "XCOPA")]
-    outcomes = [("grokking_tokens", "Grokking onset (B)"), ("peak_accuracy", "Peak accuracy")]
+    _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA",
+                    "belebele": "Belebele", "m_arc": "M-ARC"}
+    all_tasks = []
+    for md in models_data:
+        for t in (md["df_grokking"]["task"].unique() if not md["df_grokking"].empty else []):
+            if t not in [x[0] for x in all_tasks]:
+                all_tasks.append((t, _TASK_LABELS.get(t, t.upper())))
+    if outcomes is None:
+        outcomes = [("grokking_tokens", "Grokking onset (B)"), ("peak_accuracy", "Peak accuracy")]
     token_cols = {"valley_tokens", "grokking_tokens"}
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    n_tasks   = len(all_tasks)
+    n_outcomes = len(outcomes)
+    fig, axes = plt.subplots(n_tasks, n_outcomes,
+                             figsize=(7 * n_outcomes, 5 * n_tasks), squeeze=False)
 
-    for row_idx, (task, task_label) in enumerate(tasks):
+    for row_idx, (task, task_label) in enumerate(all_tasks):
         for col_idx, (y_col, y_label) in enumerate(outcomes):
             ax = axes[row_idx, col_idx]
             title_lines = []
@@ -347,15 +409,279 @@ def plot_predictor_scatter(models_data: list, x_col: str, x_label: str, plots_di
 
     fig.suptitle(f"{x_label} → downstream performance  [both models]",
                  fontsize=13, fontweight="bold")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.98])
     path = Path(plots_dir) / f"scatter_{x_col}.png"
     plt.savefig(path, dpi=100)
     plt.show()
     print(f"Saved: {path}")
 
 
+def _build_models_data(model_keys: list, data: dict,
+                       geometry_key: str = "df_geometry") -> list:
+    return [
+        {
+            "label":           data[m]["cfg"]["model_label"],
+            "df_grokking":     data[m].get("df_grokking",     pd.DataFrame()),
+            "df_geometry":     data[m].get(geometry_key,      pd.DataFrame()),
+            "df_correlations": data[m].get("df_correlations", pd.DataFrame()),
+            "color":           data[m]["color"],
+            "marker":          data[m]["marker"],
+        }
+        for m in model_keys if data[m]["eval_available"]
+    ]
+
+
+def show_correlation_heatmap(model_keys: list, data: dict) -> None:
+    """
+    Build models_data and plot the correlation heatmap, or print a skip message.
+    """
+    models_data = _build_models_data(model_keys, data)
+    if models_data:
+        plot_correlation_heatmap(models_data, data[model_keys[0]]["cfg"]["plots_dir"])
+    else:
+        print("[INFO] Skipping heatmap — no eval data available.")
+
+
+def show_predictor_scatter(model_keys: list, data: dict,
+                           x_col: str, x_label: str,
+                           geometry_key: str = "df_geometry") -> None:
+    """
+    Build models_data and plot the predictor scatter, or print a skip message.
+
+    geometry_key selects which per-model DataFrame holds the predictor column:
+      "df_geometry"    — RankMe geometry predictors (default)
+      "df_alpha_phases" — AlphaReQ phase predictors
+    """
+    models_data = _build_models_data(model_keys, data, geometry_key=geometry_key)
+    if models_data:
+        plot_predictor_scatter(models_data, x_col, x_label,
+                               data[model_keys[0]]["cfg"]["plots_dir"])
+    else:
+        print("[INFO] Skipping scatter — no eval data available.")
+
+
+def plot_correlation_heatmap(models_data: list, plots_dir) -> None:
+    """
+    Two-panel heatmap: rows = 7 RankMe predictors, columns = 4 outcomes (task × measure).
+    Color encodes Spearman ρ; * marks p < 0.05; gray = undefined (zero variance).
+
+    Required key per model dict: label, df_correlations, color.
+    """
+    _SHORT = {
+        "RankMe at first checkpoint":         "RankMe first checkpoint",
+        "RankMe at checkpoint 10":            "RankMe checkpoint 10",
+        "Mean RankMe — first 10 checkpoints": "Mean first 10 checkpoints",
+        "Mean RankMe — Q2 (25–50%)":          "Mean 25–50% tokens",
+        "Mean RankMe — Q3 (50–75%)":          "Mean 50–75% tokens",
+        "Mean RankMe — Q4 (75–100%)":         "Mean 75–100% tokens",
+        "RankMe at last checkpoint":          "RankMe last checkpoint",
+    }
+    _PRED_ORDER = list(_SHORT.keys())
+    _COLS = [
+        ("m_mmlu",   "Grokking onset (B)", "M-MMLU\nGrokking onset"),
+        ("m_mmlu",   "Peak accuracy",      "M-MMLU\nPeak accuracy"),
+        ("xcopa",    "Grokking onset (B)", "XCOPA\nGrokking onset"),
+        ("xcopa",    "Peak accuracy",      "XCOPA\nPeak accuracy"),
+        ("belebele", "Grokking onset (B)", "Belebele\nGrokking onset"),
+        ("belebele", "Peak accuracy",      "Belebele\nPeak accuracy"),
+        ("m_arc",    "Grokking onset (B)", "M-ARC\nGrokking onset"),
+        ("m_arc",    "Peak accuracy",      "M-ARC\nPeak accuracy"),
+    ]
+
+    n    = len(models_data)
+    fig, axes = plt.subplots(1, n, figsize=(max(6, len(_COLS) * 0.9) * n, 8))
+    if n == 1:
+        axes = [axes]
+
+    cmap = plt.cm.RdBu_r.copy()
+    cmap.set_bad("lightgray")
+    im = None
+
+    for ax, md in zip(axes, models_data):
+        df = md.get("df_correlations", pd.DataFrame())
+
+        mat_r = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+        mat_p = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+
+        if not df.empty:
+            for ci, (task, outcome, _) in enumerate(_COLS):
+                for ri, pred in enumerate(_PRED_ORDER):
+                    row = df[(df["task"] == task) &
+                             (df["predictor (x)"] == pred) &
+                             (df["outcome (y)"] == outcome)]
+                    if not row.empty:
+                        mat_r[ri, ci] = float(row["spearman_r"].iloc[0])
+                        mat_p[ri, ci] = float(row["spearman_p"].iloc[0])
+
+        masked = np.ma.masked_invalid(mat_r)
+        im = ax.imshow(masked, cmap=cmap, vmin=-1, vmax=1, aspect="auto")
+
+        ax.set_xticks(np.arange(-0.5, len(_COLS), 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(_PRED_ORDER), 1), minor=True)
+        ax.grid(which="minor", color="white", linewidth=1.5)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        ax.set_xticks(range(len(_COLS)))
+        ax.set_xticklabels([c[2] for c in _COLS], fontsize=9, rotation=30)
+        ax.set_yticks(range(len(_PRED_ORDER)))
+        ax.set_yticklabels([_SHORT[p] for p in _PRED_ORDER], fontsize=9)
+
+        for ri in range(len(_PRED_ORDER)):
+            for ci in range(len(_COLS)):
+                r = mat_r[ri, ci]
+                p = mat_p[ri, ci]
+                if np.isnan(r):
+                    ax.text(ci, ri, "—", ha="center", va="center",
+                            fontsize=9, color="gray")
+                    continue
+                star   = "*" if (not np.isnan(p) and p < 0.05) else ""
+                txt    = f"{r:.2f}{star}"
+                color  = "white" if abs(r) > 0.55 else "black"
+                weight = "bold" if star else "normal"
+                ax.text(ci, ri, txt, ha="center", va="center",
+                        fontsize=9, color=color, fontweight=weight)
+
+        ax.set_title(md["label"], fontsize=11, pad=10)
+
+    fig.suptitle(
+        "Spearman ρ: RankMe geometry → downstream performance\n"
+        "* = p < 0.05  |  gray = undefined (zero variance)",
+        fontsize=12, fontweight="bold",
+    )
+    # tight_layout first, leaving a strip on the right for the colorbar
+    plt.tight_layout(rect=[0, 0, 0.91, 0.93])
+    if im is not None:
+        cbar_ax = fig.add_axes([0.93, 0.18, 0.015, 0.62])
+        cb = fig.colorbar(im, cax=cbar_ax)
+        cb.set_label("Spearman ρ", fontsize=10)
+    path = Path(plots_dir) / "correlation_heatmap.png"
+    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {path}")
+
+
+def plot_alpha_correlation_heatmap(models_data: list, plots_dir) -> None:
+    """
+    Two-panel heatmap: rows = 7 AlphaReQ predictors,
+    columns = 4 outcomes (task × measure).
+    Color encodes Spearman ρ; * marks p < 0.05; gray = undefined / not used for outcome.
+
+    Required key per model dict: label, df_alpha_correlations, color.
+    """
+    _SHORT = {
+        "AlphaReQ at first checkpoint":         "AlphaReQ first checkpoint",
+        "AlphaReQ at checkpoint 10":            "AlphaReQ checkpoint 10",
+        "Mean AlphaReQ — first 10 checkpoints": "Mean first 10 checkpoints",
+        "Mean AlphaReQ — Q2 (25–50%)":          "Mean 25–50% tokens",
+        "Mean AlphaReQ — Q3 (50–75%)":          "Mean 50–75% tokens",
+        "Mean AlphaReQ — Q4 (75–100%)":         "Mean 75–100% tokens",
+        "AlphaReQ at last checkpoint":          "AlphaReQ last checkpoint",
+    }
+    _PRED_ORDER = list(_SHORT.keys())
+    _COLS = [
+        ("m_mmlu",   "Grokking onset (B)", "M-MMLU\nGrokking onset"),
+        ("m_mmlu",   "Peak accuracy",      "M-MMLU\nPeak accuracy"),
+        ("xcopa",    "Grokking onset (B)", "XCOPA\nGrokking onset"),
+        ("xcopa",    "Peak accuracy",      "XCOPA\nPeak accuracy"),
+        ("belebele", "Grokking onset (B)", "Belebele\nGrokking onset"),
+        ("belebele", "Peak accuracy",      "Belebele\nPeak accuracy"),
+        ("m_arc",    "Grokking onset (B)", "M-ARC\nGrokking onset"),
+        ("m_arc",    "Peak accuracy",      "M-ARC\nPeak accuracy"),
+    ]
+
+    n = len(models_data)
+    fig, axes = plt.subplots(1, n, figsize=(max(6, len(_COLS) * 0.9) * n, 8))
+    if n == 1:
+        axes = [axes]
+
+    cmap = plt.cm.RdBu_r.copy()
+    cmap.set_bad("lightgray")
+    im = None
+
+    for ax, md in zip(axes, models_data):
+        df = md.get("df_alpha_correlations", pd.DataFrame())
+
+        mat_r = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+        mat_p = np.full((len(_PRED_ORDER), len(_COLS)), np.nan)
+
+        if not df.empty:
+            for ci, (task, outcome, _) in enumerate(_COLS):
+                for ri, pred in enumerate(_PRED_ORDER):
+                    row = df[(df["task"] == task) &
+                             (df["predictor (x)"] == pred) &
+                             (df["outcome (y)"] == outcome)]
+                    if not row.empty:
+                        mat_r[ri, ci] = float(row["spearman_r"].iloc[0])
+                        mat_p[ri, ci] = float(row["spearman_p"].iloc[0])
+
+        masked = np.ma.masked_invalid(mat_r)
+        im = ax.imshow(masked, cmap=cmap, vmin=-1, vmax=1, aspect="auto")
+
+        ax.set_xticks(np.arange(-0.5, len(_COLS), 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, len(_PRED_ORDER), 1), minor=True)
+        ax.grid(which="minor", color="white", linewidth=1.5)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+        ax.set_xticks(range(len(_COLS)))
+        ax.set_xticklabels([c[2] for c in _COLS], fontsize=9, rotation=30)
+        ax.set_yticks(range(len(_PRED_ORDER)))
+        ax.set_yticklabels([_SHORT[p] for p in _PRED_ORDER], fontsize=9)
+
+        for ri in range(len(_PRED_ORDER)):
+            for ci in range(len(_COLS)):
+                r = mat_r[ri, ci]
+                p = mat_p[ri, ci]
+                if np.isnan(r):
+                    ax.text(ci, ri, "—", ha="center", va="center",
+                            fontsize=9, color="gray")
+                    continue
+                star   = "*" if (not np.isnan(p) and p < 0.05) else ""
+                txt    = f"{r:.2f}{star}"
+                color  = "white" if abs(r) > 0.55 else "black"
+                weight = "bold" if star else "normal"
+                ax.text(ci, ri, txt, ha="center", va="center",
+                        fontsize=9, color=color, fontweight=weight)
+
+        ax.set_title(md["label"], fontsize=11, pad=10)
+
+    fig.suptitle(
+        "Spearman ρ: AlphaReQ geometry → downstream performance\n"
+        "* = p < 0.05  |  gray = undefined or predictor not used for outcome",
+        fontsize=12, fontweight="bold",
+    )
+    plt.tight_layout(rect=[0, 0, 0.91, 0.93])
+    if im is not None:
+        cbar_ax = fig.add_axes([0.93, 0.18, 0.015, 0.62])
+        cb = fig.colorbar(im, cax=cbar_ax)
+        cb.set_label("Spearman ρ", fontsize=10)
+    path = Path(plots_dir) / "alpha_correlation_heatmap.png"
+    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {path}")
+
+
+def show_alpha_correlation_heatmap(model_keys: list, data: dict) -> None:
+    """
+    Build alpha_models_data and plot the AlphaReQ correlation heatmap,
+    or print a skip message if no eval data is available.
+    """
+    models_data = [
+        {
+            "label":                data[m]["cfg"]["model_label"],
+            "df_alpha_correlations": data[m].get("df_alpha_correlations", pd.DataFrame()),
+            "color":                data[m]["color"],
+            "marker":               data[m]["marker"],
+        }
+        for m in model_keys if data[m]["eval_available"]
+    ]
+    if models_data:
+        plot_alpha_correlation_heatmap(models_data, data[model_keys[0]]["cfg"]["plots_dir"])
+    else:
+        print("[INFO] Skipping AlphaReQ heatmap — no eval data available.")
+
+
 def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> None:
-    """Scatter: AlphaReQ trough position vs peak accuracy — both models overlaid."""
+    """Scatter: AlphaReQ minimum onset vs peak accuracy — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
@@ -407,14 +733,14 @@ def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> Non
                     transform=ax.transAxes, fontsize=12)
 
         ax.xaxis.set_major_formatter(FuncFormatter(format_tokens))
-        ax.set_xlabel("Reg.-decreasing onset (AlphaReQ trough)", fontsize=10)
+        ax.set_xlabel("AlphaReQ minimum onset (B)", fontsize=10)
         ax.set_ylabel("Peak downstream accuracy", fontsize=10)
         ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
                      else task.upper(), fontsize=9)
         ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle("AlphaReQ trough position → downstream accuracy  [both models]",
+    fig.suptitle("AlphaReQ minimum onset → downstream accuracy  [both models]",
                  fontsize=13, fontweight="bold")
     plt.tight_layout()
     path = Path(plots_dir) / "alpha_correlation_scatter.png"
@@ -423,8 +749,111 @@ def plot_alpha_correlation_scatter_combined(models_data: list, plots_dir) -> Non
     print(f"Saved: {path}")
 
 
+def show_checkpoint_correlations(model_keys: list, data: dict,
+                                  metric: str = "rankme") -> None:
+    """
+    Call plot_checkpoint_correlations for every model using the data-dict convention.
+
+    `metric` is passed to plot_checkpoint_correlations to label the y-axis correctly
+    (e.g. "rankme" or "alpha_req").
+    data[m] must contain: df_ckpt_corr, eval_available, cfg (with model_label, plots_dir).
+    """
+    for m in model_keys:
+        d   = data[m]
+        cfg = d["cfg"]
+        if d["eval_available"] and not d["df_ckpt_corr"].empty:
+            plot_checkpoint_correlations(
+                d["df_ckpt_corr"], cfg["model_label"], cfg["plots_dir"],
+                model_key=m, metric=metric
+            )
+
+
+def plot_checkpoint_correlations(df_ckpt_corr: pd.DataFrame, model_label: str,
+                                 plots_dir, model_key: str = "",
+                                 metric: str = "rankme") -> None:
+    """
+    Plot per-checkpoint cross-language Spearman(metric, accuracy) for all tasks.
+
+    At each training checkpoint the correlation is computed across all languages
+    that have both metric and accuracy data for that task. Filled markers indicate
+    p < 0.05; open markers indicate p ≥ 0.05.
+    `metric` controls the y-axis label (e.g. "rankme" or "alpha_req").
+    """
+    _TASK_LABELS = {"m_mmlu": "M-MMLU", "xcopa": "XCOPA",
+                    "belebele": "Belebele", "m_arc": "M-ARC"}
+    _TASK_COLORS = ["steelblue", "darkorange", "seagreen", "darkorchid"]
+    tasks = [(t, _TASK_LABELS.get(t, t.upper()))
+             for t in df_ckpt_corr["task"].unique()]
+    colors = {t: _TASK_COLORS[i % len(_TASK_COLORS)] for i, (t, _) in enumerate(tasks)}
+
+    n_tasks = len(tasks)
+    ncols = min(n_tasks, 2)
+    nrows = -(-n_tasks // ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(7 * ncols, 5 * nrows), sharey=True,
+                             squeeze=False)
+    axes_flat = [axes[r][c] for r in range(nrows) for c in range(ncols)]
+    for ax in axes_flat[n_tasks:]:
+        ax.set_visible(False)
+
+    for ax, (task, task_label) in zip(axes_flat, tasks):
+        df_t  = df_ckpt_corr[df_ckpt_corr["task"] == task].copy()
+        color = colors[task]
+
+        if df_t.empty or df_t["spearman_r"].isna().all():
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=12, color="gray")
+            ax.set_title(task_label)
+            continue
+
+        tc  = df_t["token_count"].values
+        rho = df_t["spearman_r"].values
+        p   = df_t["spearman_p"].values
+
+        valid = ~np.isnan(rho)
+        ax.plot(tc[valid], rho[valid], color=color, lw=1.5, alpha=0.5)
+
+        sig   = valid & (p < 0.05)
+        insig = valid & ~sig
+        if insig.any():
+            ax.scatter(tc[insig], rho[insig], s=45, facecolors="none",
+                       edgecolors=color, lw=1.5, zorder=4)
+        if sig.any():
+            ax.scatter(tc[sig], rho[sig], s=60, color=color,
+                       edgecolors="k", lw=0.5, zorder=5)
+
+        n_modal = int(df_t.loc[df_t["n_languages"] > 0, "n_languages"].mode().iloc[0])
+        ax.axhline(0, color="black", lw=1, ls="--", alpha=0.5)
+        ax.set_ylim(-1.05, 1.05)
+        ax.set_yticks([-1, -0.5, 0, 0.5, 1])
+        ax.set_title(f"{task_label}  (n = {n_modal} languages)",
+                     fontsize=11, fontweight="bold")
+        apply_token_formatter(ax)
+        ax.set_xlabel("Training tokens", fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+        filled_h = mpatches.Patch(color=color, label="p < 0.05")
+        open_h   = plt.Line2D([0], [0], marker="o", color="w",
+                               markerfacecolor="none", markeredgecolor=color,
+                               markersize=7, label="p ≥ 0.05")
+        ax.legend(handles=[filled_h, open_h], fontsize=8)
+
+    metric_label = {"rankme": "RankMe", "alpha_req": "AlphaReQ"}.get(metric, metric)
+    for r in range(nrows):
+        axes[r][0].set_ylabel(
+            f"Spearman ρ  ({metric_label} vs accuracy, across languages)", fontsize=9)
+    fig.suptitle(
+        f"[{model_label}] Cross-language Spearman({metric_label}, accuracy) per checkpoint",
+        fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    suffix = f"_{model_key}" if model_key else ""
+    path   = Path(plots_dir) / f"{metric}_checkpoint_correlations{suffix}.png"
+    plt.savefig(path, dpi=120, bbox_inches="tight")
+    plt.show()
+    print(f"Saved: {path}")
+
+
 def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
-    """Scatter: rate of α decline vs grokking onset — both models overlaid."""
+    """Scatter: early AlphaReQ rate of change vs grokking onset — both models overlaid."""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     for ax_idx, task in enumerate(["m_mmlu", "xcopa"]):
@@ -476,7 +905,7 @@ def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
                     transform=ax.transAxes, fontsize=11, color="gray")
 
         ax.yaxis.set_major_formatter(FuncFormatter(format_tokens))
-        ax.set_xlabel("Rate of α decline (α/B)", fontsize=10)
+        ax.set_xlabel("Early AlphaReQ rate of change (α/B)", fontsize=10)
         ax.set_ylabel("Grokking onset (B)", fontsize=10)
         ax.set_title(f"{task.upper()}\n" + "\n".join(title_lines) if title_lines
                      else task.upper(), fontsize=9)
@@ -484,7 +913,7 @@ def plot_alpha_rate_scatter_combined(models_data: list, plots_dir) -> None:
             ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle("Rate of α decline → grokking onset  [both models]",
+    fig.suptitle("Early AlphaReQ rate of change → grokking onset  [both models]",
                  fontsize=13, fontweight="bold")
     plt.tight_layout()
     path = Path(plots_dir) / "alpha_rate_scatter.png"

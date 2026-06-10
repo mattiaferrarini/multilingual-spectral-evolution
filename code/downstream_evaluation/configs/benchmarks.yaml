@@ -25,4 +25,36 @@ benchmarks:
       Turkish:    "xcopa_tr"
       Indonesian: "xcopa_id"
 
+  belebele:
+    num_fewshot: 5
+    metric: "acc,none"
+    random_chance: 0.25          # 4-choice MC reading comprehension
+    languages:
+      English:    "belebele_eng_Latn"
+      French:     "belebele_fra_Latn"
+      Spanish:    "belebele_spa_Latn"
+      Arabic:     "belebele_arb_Arab"
+      Chinese:    "belebele_zho_Hans"
+      Swahili:    "belebele_swh_Latn"
+      German:     "belebele_deu_Latn"
+      Italian:    "belebele_ita_Latn"
+      Hindi:      "belebele_hin_Deva"
+      Indonesian: "belebele_ind_Latn"
+
+  m_arc:
+    num_fewshot: 5
+    metric: "acc_norm,none"      # length-normalised accuracy, standard for ARC
+    random_chance: 0.25          # 4-choice MC
+    languages:
+      English:    "arc_challenge"
+      French:     "arc_fr"
+      Spanish:    "arc_es"
+      Arabic:     "arc_ar"
+      Chinese:    "arc_zh"
+      German:     "arc_de"
+      Italian:    "arc_it"
+      Hindi:      "arc_hi"
+      Indonesian: "arc_id"
+      # Swahili not available in alexandrainst/m_arc
+
 # Verify task names with: python downstream_evaluation/check_tasks.py
