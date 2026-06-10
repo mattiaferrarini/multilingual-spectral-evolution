@@ -22,8 +22,8 @@ MODEL_KEY="${1:-fuxi}"
 LIMIT="${2:-}"
 
 case "${MODEL_KEY}" in
-    fuxi)    RANKME_CSV="${REPO_ROOT}/results/fuxi.csv" ;;
-    apertus) RANKME_CSV="${REPO_ROOT}/results/apertus.csv" ;;
+    fuxi)    RANKME_CSV="${REPO_ROOT}/results/fuxi_fine_wiki.csv" ;;
+    apertus) RANKME_CSV="${REPO_ROOT}/results/apertus_fine_wiki.csv" ;;
     *)
         echo "ERROR: unknown model '${MODEL_KEY}'. Choose: fuxi | apertus" >&2
         exit 1

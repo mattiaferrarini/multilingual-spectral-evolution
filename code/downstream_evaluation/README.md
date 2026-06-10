@@ -23,7 +23,7 @@ Evaluates FuxiTranyu-8B and Apertus-8B-2509 checkpoints on four multilingual ben
 
 ## Running on the cluster
 
-From a cluster shell pod, submit all checkpoints for a model:
+From your local machine (requires `runai` CLI configured), submit all checkpoints for a model:
 
 ```bash
 ./code/downstream_evaluation/submit_all.sh fuxi      # all 57 Fuxi checkpoints
