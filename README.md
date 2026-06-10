@@ -1,50 +1,64 @@
 # One Model, Many Geometries: Spectral Dynamics of Multilingual LLMs
 
-## Group number
-Our group is g33.
+Please, follow the instructions below to reproduce all of our experiments. We set up everything to ensure multiple people can run the code on the cluster without conflicts.
 
 ## Set-up
 
-1. Create your own working subfolder on the cluster.
+1. Create your own working subfolder on the cluster within `scratch` and clone the repository there.
 
 2. Copy the `.env.example` file and name it `.env`. Fill the fields inside it with your own details:
-    - `HF_TOKEN`: Your Hugging Face token.
+    - `HF_TOKEN`: Your Hugging Face token, **mandatory** to access gated models.
     - `GASPAR`: Your EPFL GASPAR username used for Run:AI.
     - `CLUSTER_FOLDER`: Your specific subfolder name on the team's scratch partition.
     - `GROUP`: Our group number (e.g., `g33`).
+    - `OPENAI_API_KEY`: An OpenAI API key for LLM judges (only needed for multilingual transfer experiments, skip not needed).
+    - `CSCS_SERVING_API`: A [Swiss AI Research Platform](https://serving.swissai.svc.cscs.ch/) API key for LLM judges (only needed for multilingual transfer experiments, skip not needed).
 
 3. Copy the `.env` file to your subfolder on the cluster. 
-
-4. Setup local python environment (only visualization of results):
-```bash
-python3 -m venv env
-source env/bin/activate
-pip install -r requirements.local.txt
-```
-
-5. (optional) Set this runai project as default for your terminal session:
-```bash
-runai config project <project-name>
-```
-(e.g., `runai config project course-cs-552-pmazeved`)
 
 ## Submitting jobs 
 
 > ⚠️ **Warning:** Ensure you have created your own working subfolder on the cluster to avoid conflicts.
 
-### Tracing geometry
+### Tracing Geometry over Pretraining
 
-For this type of jobs specifically, I have simplified the submission and tracking. 
-
-To sumbit for Fuxi model: 
+To submit the jobs for RankMe computation over all checkpoints, use the following scripts, which pull Gaspar, group, and cluster folder form the `.env` file:
 
 ```
-./job_scripts/trace_fuxi.sh <job-name>
+./code/job_scripts/trace_fuxi_fine_wiki.sh <job-name>
+./code/job_scripts/trace_apertus_fine_wiki.sh <job-name>
 ```
 
-To submit for Apertus:
-```
-./job_scripts/trace_apertus.sh <job-name>
-```
-Both scripts pull Gaspar, group, and cluster folder form the `.env` file.
+### Multilingual Transfer
 
+#### ECLeKTic
+
+To generate answers, scores, and correlation scores for ECLeKTic, follow these steps:
+
+1. Add `OPENAI_API_KEY` and `CSCS_SERVING_API` to `.env` if not already done.
+2. Submit the job for answer generation and scoring (both models at the same time):
+```
+./code/job_scripts/eclektic.sh
+```
+3. Run the correlation analyses using the following bash script (both models at the same time):
+```
+./code/multilingual_transfer/scripts/run_correlations_eclektic.sh
+```
+
+#### XNLI
+
+To generate answers and correlation scores for the XNLI setting, follow these steps:
+
+1. Submit the generation and scoring jobs for each model (can be run simultaneously):
+```
+./code/job_scripts/xnli_apertus.sh <job-name>
+./code/job_scripts/xnli_fuxi.sh <job-name>
+```
+2. Run the correlation analyses (both models at the same time):
+```
+./code/multilingual_transfer/scripts/run_correlations_xnli.sh
+```
+3. Run the correlation analyses with RankMe law predictors:
+```
+./code/multilingual_transfer/scripts/run_correlations_xnli_law.sh
+```
