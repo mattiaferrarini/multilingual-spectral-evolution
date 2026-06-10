@@ -62,3 +62,7 @@ To generate answers and correlation scores for the XNLI setting, follow these st
 ```
 ./code/multilingual_transfer/scripts/run_correlations_xnli_law.sh
 ```
+
+### Downstream Monolingual Performance
+
+Instructions for submitting downstream evaluation jobs (m-MMLU, XCOPA, Belebele, M-ARC) are in [`code/downstream_evaluation/README.md`](code/downstream_evaluation/README.md).
