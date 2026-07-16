@@ -130,11 +130,15 @@ def prepare_dataset_samples(config, pending_ds_names, results_dir, model_name, m
         trust_remote_code=model_cfg.get("trust_remote_code", False),
     )
     
+    # Namespace the cache by tokenizer identity: different models sharing the same
+    # samples_dir must not reuse each other's tokenized spans (vocab/ids differ per model).
+    tokenizer_dir = tokenizer_name.replace("/", "__")
+
     dataset_samples = {}
     for ds_config in config["datasets"]:
         ds_name = ds_config["name"]
         if ds_name in pending_ds_names:
-            ds_cache_dir = os.path.join(results_dir, ds_config["path"])
+            ds_cache_dir = os.path.join(results_dir, ds_config["path"], tokenizer_dir)
             os.makedirs(ds_cache_dir, exist_ok=True)
             cache_file = os.path.join(ds_cache_dir, f"samples_{ds_name}_{num_sequences}_{max_seq_len}_{seed}.pt")
             if os.path.exists(cache_file):
