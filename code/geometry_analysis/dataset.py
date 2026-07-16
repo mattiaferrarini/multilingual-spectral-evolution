@@ -123,9 +123,10 @@ def prepare_dataset_samples(config, pending_ds_names, results_dir, model_name, m
     min_seq_len = coll.get("min_sequence_length", 0)
     streaming = coll.get("streaming", False)
 
-    logger.info(f"Loading tokenizer for '{model_name}' to prepare spans...")
+    tokenizer_name = model_cfg.get("tokenizer_name", model_name)
+    logger.info(f"Loading tokenizer for '{tokenizer_name}' to prepare spans...")
     tokenizer = AutoTokenizer.from_pretrained(
-        model_name,
+        tokenizer_name,
         trust_remote_code=model_cfg.get("trust_remote_code", False),
     )
     

@@ -92,9 +92,13 @@ def load_model(model_name, revision, model_cfg):
     label = revision or "default"
     logger.info(f"Loading model '{model_name}' revision='{label}'")
     hf_model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+
+    # Some checkpoint-only repos (e.g. BLOOM intermediates) don't publish a
+    # tokenizer on any revision; tokenizer_name lets a config point elsewhere.
+    tokenizer_name = model_cfg.get("tokenizer_name", model_name)
     tokenizer = AutoTokenizer.from_pretrained(
-        model_name,
-        revision=revision,
+        tokenizer_name,
+        revision=revision if tokenizer_name == model_name else None,
         trust_remote_code=model_cfg.get("trust_remote_code", False),
     )
     if tokenizer.pad_token is None:
