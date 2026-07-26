@@ -77,5 +77,5 @@ collection:
   seed: 42                 # controls dataset sampling; same seed = same sequences across all checkpoints
 
 output:
-  results_path: "results/apertus_wiki_all.csv"
+  results_path: "code/results/apertus_wiki_all.csv"
   samples_dir: "data/selected_samples"

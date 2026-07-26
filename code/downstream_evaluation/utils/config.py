@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-_RESULTS_DIR     = Path(__file__).parent.parent.parent.parent / "results"
+_RESULTS_DIR     = Path(__file__).parent.parent.parent / "results"
 _BENCHMARKS_PATH = Path(__file__).parent.parent / "configs" / "benchmarks.yaml"
 
 _MODEL_CONFIGS = {

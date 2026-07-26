@@ -62,5 +62,5 @@ collection:
   streaming: false
 
 output:
-  results_path: "results/apertus_fine_wiki.csv"
+  results_path: "code/results/apertus_fine_wiki.csv"
   samples_dir: "/mnt/course-cs-552/rcp-caas-cs-552-g33/scratch-g33/selected_samples"

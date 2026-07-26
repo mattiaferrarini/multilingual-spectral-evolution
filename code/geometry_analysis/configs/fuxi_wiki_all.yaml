@@ -76,5 +76,5 @@ collection:
   seed: 42
 
 output:
-  results_path: "results/fuxi_wiki_all.csv"
+  results_path: "code/results/fuxi_wiki_all.csv"
   samples_dir: "data/selected_samples_wiki"

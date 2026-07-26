@@ -63,5 +63,5 @@ collection:
                            # true  = streaming with buffer-based shuffle (faster but biased toward dataset start)
 
 output:
-  results_path: "results/fuxi_fine_wiki.csv"
+  results_path: "code/results/fuxi_fine_wiki.csv"
   samples_dir: "data/selected_samples"
