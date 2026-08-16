@@ -1,4 +1,6 @@
-# One Model, Many Geometries: Spectral Dynamics of Multilingual LLMs
+# One Model, Many Geometries: Spectral Dynamics of Multilingual LLMs - Modern NLP (CS-552), Spring 2026
+
+This repository contains the code and resources for our research on the spectral dynamics of multilingual Large Language Models. We investigate the macro-level geometric co-evolution of languages during pretraining by tracking representation geometry via RankMe across over 100 checkpoints of two 8B LLMs. We find that diverse languages exhibit aligned, non-monotonic geometric phases, differing primarily in their absolute representational dimensionality. Furthermore, a stable language hierarchy emerges very early in pretraining, serving as an interpretable predictor for both monolingual performance and cross-lingual transfer. For full details on the methodology, experiments, and correlation analyses, please check the [Final Report](report/Final%20Report.pdf).
 
 Please, follow the instructions below to reproduce all of our experiments. We set up everything to ensure multiple people can run the code on the cluster without conflicts.
 
